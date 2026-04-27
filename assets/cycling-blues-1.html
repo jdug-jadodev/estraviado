@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paleta Azules — App Ciclismo</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --electric:    #0057FF;
+    --cobalt:      #0038C8;
+    --neon:        #00BFFF;
+    --arctic:      #00D4FF;
+    --steel:       #1A6FA8;
+    --midnight:    #0A1F44;
+    --slate:       #1C3F6E;
+    --storm:       #1E3A5F;
+    --ice:         #CCE8FF;
+    --sky-pop:     #29A8E0;
+    --royal:       #1547C0;
+    --plasma:      #0099FF;
+  }
+
+  body {
+    background: #080E1A;
+    color: #fff;
+    font-family: 'Barlow', sans-serif;
+    min-height: 100vh;
+    padding: 48px 24px;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 56px;
+  }
+
+  header .tag {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 11px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--arctic);
+    opacity: 0.7;
+    margin-bottom: 12px;
+  }
+
+  header h1 {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 900;
+    font-size: clamp(32px, 7vw, 64px);
+    text-transform: uppercase;
+    line-height: 1;
+    letter-spacing: -1px;
+    background: linear-gradient(135deg, #fff 0%, var(--arctic) 60%, var(--electric) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  header p {
+    margin-top: 14px;
+    color: rgba(255,255,255,0.45);
+    font-size: 14px;
+    letter-spacing: 0.5px;
+  }
+
+  /* ─── GRID ─── */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+    max-width: 1100px;
+    margin: 0 auto 64px;
+  }
+
+  .card {
+    border-radius: 16px;
+    overflow: hidden;
+    background: #111B2E;
+    border: 1px solid rgba(255,255,255,0.06);
+    transition: transform .25s ease, box-shadow .25s ease;
+    cursor: default;
+  }
+  .card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 24px 48px rgba(0,0,0,0.5);
+  }
+
+  .swatch {
+    height: 160px;
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    padding: 16px;
+  }
+
+  .swatch-badge {
+    background: rgba(0,0,0,0.35);
+    backdrop-filter: blur(8px);
+    border-radius: 8px;
+    padding: 5px 11px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.9);
+  }
+
+  .card-body {
+    padding: 18px 20px 20px;
+  }
+
+  .color-name {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+
+  .hex-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .hex {
+    font-size: 12px;
+    font-family: monospace;
+    color: rgba(255,255,255,0.45);
+    letter-spacing: 1px;
+  }
+
+  .dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.12);
+    flex-shrink: 0;
+  }
+
+  .use-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .tag-pill {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.07);
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 0.3px;
+  }
+
+  /* ─── PREVIEW STRIP ─── */
+  .section-label {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 11px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.35);
+    text-align: center;
+    margin-bottom: 28px;
+  }
+
+  .preview-row {
+    max-width: 800px;
+    margin: 0 auto 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* UI Mockup */
+  .mockup {
+    border-radius: 20px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: #0A1020;
+  }
+
+  .mock-header {
+    background: var(--midnight);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 22px;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+
+  .mock-logo {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 900;
+    font-size: 20px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--electric);
+  }
+
+  .mock-nav {
+    display: flex;
+    gap: 20px;
+  }
+
+  .mock-nav span {
+    font-size: 12px;
+    color: rgba(255,255,255,0.4);
+    cursor: pointer;
+  }
+
+  .mock-nav span.active {
+    color: var(--arctic);
+    border-bottom: 2px solid var(--arctic);
+    padding-bottom: 2px;
+  }
+
+  .mock-body {
+    padding: 24px 22px;
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .stat-card {
+    flex: 1;
+    min-width: 120px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 12px;
+    padding: 14px 16px;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .stat-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: rgba(255,255,255,0.35);
+    margin-bottom: 8px;
+  }
+
+  .stat-val {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: 28px;
+    line-height: 1;
+  }
+
+  .stat-val.electric { color: var(--electric); }
+  .stat-val.neon     { color: var(--neon); }
+  .stat-val.arctic   { color: var(--arctic); }
+  .stat-val.plasma   { color: var(--plasma); }
+
+  .stat-sub {
+    font-size: 10px;
+    color: rgba(255,255,255,0.3);
+    margin-top: 4px;
+  }
+
+  /* CTA buttons preview */
+  .btn-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    max-width: 800px;
+    margin: 0 auto 64px;
+    justify-content: center;
+  }
+
+  .btn {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 12px 24px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: filter .2s ease, transform .15s ease;
+  }
+  .btn:hover { filter: brightness(1.15); transform: scale(1.03); }
+
+  .btn-electric { background: var(--electric); color: #fff; }
+  .btn-neon     { background: var(--neon);     color: #0A1020; }
+  .btn-arctic   { background: var(--arctic);   color: #0A1020; }
+  .btn-outline  { background: transparent; color: var(--electric); border: 2px solid var(--electric); }
+  .btn-cobalt   { background: var(--cobalt); color: #fff; }
+  .btn-plasma   { background: var(--plasma); color: #fff; }
+
+  /* gradient samples */
+  .gradients {
+    max-width: 800px;
+    margin: 0 auto 32px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+  }
+
+  .grad-swatch {
+    height: 80px;
+    border-radius: 12px;
+    display: flex;
+    align-items: flex-end;
+    padding: 12px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    color: rgba(255,255,255,0.75);
+    text-transform: uppercase;
+    font-weight: 600;
+    border: 1px solid rgba(255,255,255,0.07);
+  }
+
+</style>
+</head>
+<body>
+
+<header>
+  <div class="tag">App de Ciclismo · Paleta de Color</div>
+  <h1>Azules Llamativos</h1>
+  <p>12 tonos seleccionados para máximo impacto en interfaces de ciclismo</p>
+</header>
+
+<!-- COLOR CARDS -->
+<div class="grid">
+
+  <div class="card">
+    <div class="swatch" style="background:#0057FF;">
+      <span class="swatch-badge">Primario</span>
+    </div>
+    <div class="card-body">
+      <div class="color-name">Electric Blue</div>
+      <div class="hex-row"><div class="dot" style="background:#0057FF;"></div><span class="hex">#0057FF</span></div>
+      <div class="use-tags">
+        <span class="tag-pill">Botones CTA</span>
+        <span class="tag-pill">Íconos activos</span>
+        <span class="tag-pill">Marca</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#00BFFF;">
+      <span class="swatch-badge">Acento</span>
+    </div>
+    <div class="card-body">
+      <div class="color-name">Neon Sky</div>
+      <div class="hex-row"><div class="dot" style="background:#00BFFF;"></div><span class="hex">#00BFFF</span></div>
+      <div class="use-tags">
+        <span class="tag-pill">Highlights</span>
+        <span class="tag-pill">Velocidad</span>
+        <span class="tag-pill">Progreso</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#00D4FF;">
+      <span class="swatch-badge">Energía</span>
+    </div>
+    <div class="card-body">
+      <div class="color-name">Arctic Flash</div>
+      <div class="hex-row"><div class="dot" style="background:#00D4FF;"></div><span class="hex">#00D4FF</span></div>
+      <div class="use-tags">
+        <span class="tag-pill">Métricas</span>
+        <span class="tag-pill">Live tracking</span>
+        <span class="tag-pill">Alertas</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#0099FF;">
+      <span class="swatch-badge">Versátil</span>
+    </div>
+    <div class="card-body">
+      <div class="color-name">Plasma Blue</div>
+      <div class="hex-row"><div class="dot" style="background:#0099FF;"></div><span class="hex">#0099FF</span></div>
+      <div class="use-tags">
+        <span class="tag-pill">Links</span>
+        <span class="tag-pill">Badges</span>
+        <span class="tag-pill">Charts</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#0038C8;">
+      <span class="swatch-badge">Profundo</span>
+    </div>
+    <div class="card-body">
+      <div class="color-name">Cobalt Core</div>
+      <div class="hex-row"><div class="dot" style="background:#0038C8;"></div><span class="hex">#0038C8</span></div>
+      <div class="use-tags">
+        <span class="tag-pill">Fondos</span>
+        <span class="tag-pill">Cards</span>
+        <span class="tag-pill">Nav activo</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#1547C0;">
+      <span class="swatch-badge">Clásico</span>
+    </div>
+    <div class="card-body">
+      <div class="color-name">Royal Ride</div>
+      <div class="hex-row"><div class="dot" style="background:#1547C0;"></div><span class="hex">#1547C0</span></div>
+      <div class="use-tags">
+        <span class="tag-pill">Headers</span>
+        <span class="tag-pill">Primario alt</span>
+        <span class="tag-pill">Hover</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#29A8E0;">
+      <span class="swatch-badge">Dinámico</span>
+    </div>
+    <div class="card-body">
+      <div class="color-name">Sky Pop</div>
+      <div class="hex-row"><div class="dot" style="background:#29A8E0;"></div><span class="hex">#29A8E0</span></div>
+      <div class="use-tags">
+        <span class="tag-pill">Mapa</span>
+        <span class="tag-pill">Rutas</span>
+        <span class="tag-pill">Segmentos</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#1A6FA8;">
+      <span class="swatch-badge">Técnico</span>
+    </div>
+    <div class="card-body">
+      <div class="color-name">Steel Wind</div>
+      <div class="hex-row"><div class="dot" style="background:#1A6FA8;"></div><span class="hex">#1A6FA8</span></div>
+      <div class="use-tags">
+        <span class="tag-pill">Datos técnicos</span>
+        <span class="tag-pill">Secundario</span>
+        <span class="tag-pill">Bordes</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#0A1F44;">
+      <span class="swatch-badge">Base oscura</span>
+    </div>
+    <div class="card-body">
+      <div class="color-name">Midnight Sprint</div>
+      <div class="hex-row"><div class="dot" style="background:#0A1F44;"></div><span class="hex">#0A1F44</span></div>
+      <div class="use-tags">
+        <span class="tag-pill">Background</span>
+        <span class="tag-pill">Dark mode</span>
+        <span class="tag-pill">Navbars</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#1C3F6E;">
+      <span class="swatch-badge">Profundidad</span>
+    </div>
+    <div class="card-body">
+      <div class="color-name">Deep Slate</div>
+      <div class="hex-row"><div class="dot" style="background:#1C3F6E;"></div><span class="hex">#1C3F6E</span></div>
+      <div class="use-tags">
+        <span class="tag-pill">Cards</span>
+        <span class="tag-pill">Paneles</span>
+        <span class="tag-pill">Overlays</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#1E3A5F;">
+      <span class="swatch-badge">Estructura</span>
+    </div>
+    <div class="card-body">
+      <div class="color-name">Storm Rider</div>
+      <div class="hex-row"><div class="dot" style="background:#1E3A5F;"></div><span class="hex">#1E3A5F</span></div>
+      <div class="use-tags">
+        <span class="tag-pill">Sidebars</span>
+        <span class="tag-pill">Tabs</span>
+        <span class="tag-pill">Divisores</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#CCE8FF;">
+      <span class="swatch-badge">Claro</span>
+    </div>
+    <div class="card-body">
+      <div class="color-name" style="color:#0A1F44;">Ice Glare</div>
+      <div class="hex-row"><div class="dot" style="background:#CCE8FF; border-color: rgba(0,0,0,0.1);"></div><span class="hex">#CCE8FF</span></div>
+      <div class="use-tags">
+        <span class="tag-pill">Light mode</span>
+        <span class="tag-pill">Textos suaves</span>
+        <span class="tag-pill">Fondos</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- GRADIENTS -->
+<p class="section-label">Gradientes sugeridos</p>
+<div class="gradients">
+  <div class="grad-swatch" style="background: linear-gradient(135deg, #0057FF, #00D4FF);">Electric → Arctic</div>
+  <div class="grad-swatch" style="background: linear-gradient(135deg, #0A1F44, #0057FF);">Midnight → Electric</div>
+  <div class="grad-swatch" style="background: linear-gradient(135deg, #0038C8, #00BFFF);">Cobalt → Neon</div>
+  <div class="grad-swatch" style="background: linear-gradient(135deg, #1C3F6E, #29A8E0);">Slate → Sky Pop</div>
+  <div class="grad-swatch" style="background: linear-gradient(135deg, #0099FF, #00D4FF);">Plasma → Arctic</div>
+  <div class="grad-swatch" style="background: linear-gradient(135deg, #1547C0, #0099FF);">Royal → Plasma</div>
+</div>
+
+<!-- BOTONES -->
+<p class="section-label" style="margin-top:48px;">Botones de acción</p>
+<div class="btn-row">
+  <button class="btn btn-electric">Iniciar ruta</button>
+  <button class="btn btn-neon">Récord</button>
+  <button class="btn btn-arctic">GPS Live</button>
+  <button class="btn btn-plasma">Ver stats</button>
+  <button class="btn btn-cobalt">Explorar</button>
+  <button class="btn btn-outline">Mi perfil</button>
+</div>
+
+<!-- MOCKUP -->
+<p class="section-label" style="margin-top:48px;">Vista previa en UI</p>
+<div class="preview-row">
+  <div class="mockup">
+    <div class="mock-header">
+      <div class="mock-logo">⚡ VeloCycle</div>
+      <div class="mock-nav">
+        <span class="active">Dashboard</span>
+        <span>Rutas</span>
+        <span>Entrenos</span>
+      </div>
+    </div>
+    <div class="mock-body">
+      <div class="stat-card">
+        <div class="stat-label">Velocidad</div>
+        <div class="stat-val electric">38.4</div>
+        <div class="stat-sub">km/h · máx hoy</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Distancia</div>
+        <div class="stat-val plasma">84.2</div>
+        <div class="stat-sub">km · esta semana</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Cadencia</div>
+        <div class="stat-val neon">92</div>
+        <div class="stat-sub">rpm · promedio</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Ritmo cardíaco</div>
+        <div class="stat-val arctic">148</div>
+        <div class="stat-sub">bpm · zona 3</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
