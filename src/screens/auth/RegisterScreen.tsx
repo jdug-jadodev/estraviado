@@ -5,7 +5,7 @@ import {
 } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import type { StackNavigationProp } from '@react-navigation/stack'
-import { signUp } from '@/api/auth'
+import { selfRegister } from '@/api/auth'
 import { COLORS } from '@/constants/colors'
 import { AuthStackParams } from '@/types/navigation/navigation'
 
@@ -38,23 +38,49 @@ export function RegisterScreen() {
     }
 
     console.log('=== handleRegister INICIO ===')
-    console.log('Campos del form:', { fullName, username, email, passwordLength: password.length })
+    console.log('📝 Campos del form:', { fullName, username, email, passwordLength: password.length })
+    console.log('🌐 Ambiente:', __DEV__ ? 'DESARROLLO' : 'PRODUCCIÓN')
 
     setIsLoading(true)
 
-    const { error } = await signUp(email, password, fullName, username)
+    const { error } = await selfRegister(email, password, fullName, username)
 
     setIsLoading(false)
 
     console.log('=== handleRegister RESULTADO ===')
-    console.log('Error recibido:', error ? JSON.stringify(error) : 'ninguno')
-
     if (error) {
-      console.error('Error al registrar:', error.message)
+      console.error('❌ Error al registrar:', JSON.stringify(error, null, 2))
+      console.error('❌ Error Code:', error.code)
+      console.error('❌ Error Status:', error.status)
+      console.error('❌ Error Details:', error.details)
+      
       const message = translateAuthError(error.message)
-      Alert.alert('No pudimos crear tu cuenta', `${message}\n\n[Debug] ${error.message}`)
+      const debugInfo = `
+Error Code: ${error.code}
+HTTP Status: ${error.status}
+Mensaje: ${error.message}
+${error.details ? `Detalles: ${error.details}` : ''}
+      `.trim()
+      
+      Alert.alert(
+        'No pudimos crear tu cuenta',
+        message,
+        [
+          {
+            text: 'Copiar debug info',
+            onPress: () => {
+              // En Expo, copia al clipboard
+              console.log('Debug Info:', debugInfo)
+              Alert.alert('Debug Info copiada a logs')
+            }
+          },
+          { text: 'OK' }
+        ]
+      )
       return
     }
+    
+    console.log('✅ handleRegister ÉXITO')
 
     Alert.alert(
       'Cuenta creada',
