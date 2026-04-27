@@ -1,0 +1,2 @@
+export const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN
+export const SEARCH_COUNTRY = 'CO' 

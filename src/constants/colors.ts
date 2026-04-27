@@ -4,6 +4,9 @@ export const COLORS = {
   primaryDark: '#0369a1',
   primaryLight: '#7dd3fc',
 
+  // Secundario
+  secondary: '#f5f5f5',
+
   // Fondo y superficies
   background: '#0f1117',     // fondo oscuro
   surface: '#1a1d27',        // tarjetas y modales

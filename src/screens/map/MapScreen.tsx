@@ -35,33 +35,70 @@ export function MapScreen() {
       const { status } = await Location.requestForegroundPermissionsAsync()
       if (status === 'granted') {
         console.log('Permiso de ubicación otorgado')
-        // Obtener ubicación inicial
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        })
-
-        const userCoords = {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
+        
+        // 1. Usar última ubicación conocida PRIMERO (instantáneo)
+        const lastLocation = await Location.getLastKnownPositionAsync()
+        if (lastLocation) {
+          console.log('Última ubicación conocida:', lastLocation.coords)
+          const userCoords = {
+            latitude: lastLocation.coords.latitude,
+            longitude: lastLocation.coords.longitude,
+          }
+          setUserLocation(userCoords)
+          setCameraCoords({
+            longitude: userCoords.longitude,
+            latitude: userCoords.latitude,
+            zoom: 16,
+          })
+        } else {
+          // Fallback: centrar en Bogotá mientras espera
+          setCameraCoords({
+            longitude: -74.0721,
+            latitude: 4.711,
+            zoom: 13,
+          })
         }
 
-        setUserLocation(userCoords)
-
-        // Centrar la cámara en la ubicación del usuario
-        setCameraCoords({
-          longitude: userCoords.longitude,
-          latitude: userCoords.latitude,
-          zoom: 16,
+        // 2. Obtener ubicación más precisa en background (sin bloquear UI)
+        Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
         })
+          .then((location) => {
+            console.log('Ubicación actualizada:', location.coords)
+            const userCoords = {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            }
+            setUserLocation(userCoords)
+            // Actualizar con ubicación más precisa
+            setCameraCoords({
+              longitude: userCoords.longitude,
+              latitude: userCoords.latitude,
+              zoom: 16,
+            })
+          })
+          .catch((error) => console.error('Error obteniendo ubicación precisa:', error))
       } else {
         const errorMsg = 'Permisos de ubicación denegados'
         setLocationError(errorMsg)
         console.warn(errorMsg)
+        // Fallback: centrar en Bogotá
+        setCameraCoords({
+          longitude: -74.0721,
+          latitude: 4.711,
+          zoom: 13,
+        })
       }
     } catch (error) {
       const errorMsg = `Error solicitando ubicación: ${error}`
       setLocationError(errorMsg)
       console.error(errorMsg)
+      // Fallback: centrar en Bogotá
+      setCameraCoords({
+        longitude: -74.0721,
+        latitude: 4.711,
+        zoom: 13,
+      })
     }
   }
 
