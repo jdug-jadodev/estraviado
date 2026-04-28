@@ -1,4 +1,4 @@
 export { reverseGeocode } from './reverseGeocode'
-export { searchPlaces } from './searchPlaces'
+export { searchPlaces, retrievePlace } from './searchPlaces'
 export { calculateDistance } from './calculateDistance'
 export { isSameLocation } from './isSameLocation'

@@ -3,6 +3,8 @@ import { View, StyleSheet } from 'react-native'
 import MapboxGL from '@rnmapbox/maps'
 import { RutaCoMap } from './RutaCoMap'
 import { LocationPoint } from '@/types/planner'
+import { CameraCoords } from '@/types/map'
+import { CalculatedRoute } from '@/types/route'
 import { COLORS } from '@/constants/colors'
 
 interface PlannerMapProps {
@@ -10,6 +12,7 @@ interface PlannerMapProps {
   origin: LocationPoint | null
   destination: LocationPoint | null
   selectingMode: 'origin' | 'destination' | null
+  route?: CalculatedRoute | null
 }
 
 export function PlannerMap({
@@ -17,14 +20,20 @@ export function PlannerMap({
   origin,
   destination,
   selectingMode,
+  route,
 }: PlannerMapProps) {
   const mapRef = useRef<MapboxGL.MapView>(null)
   const cameraRef = useRef<MapboxGL.Camera>(null)
-  const [cameraCoords, setCameraCoords] = useState<{
-    longitude: number
-    latitude: number
-    zoom?: number
-  } | null>(null)
+  const [cameraCoords, setCameraCoords] = useState<CameraCoords | null>(null)
+
+  // Log cuando se recibe ruta
+  useEffect(() => {
+    if (route) {
+      console.log('[PlannerMap] Recibió ruta:', route)
+    } else {
+      console.log('[PlannerMap] No hay ruta')
+    }
+  }, [route])
 
   // Inicializar mapa en ubicación central de Bogotá
   useEffect(() => {
@@ -170,31 +179,48 @@ export function PlannerMap({
           </MapboxGL.ShapeSource>
         )}
 
-        {/* Línea de ruta potencial entre los dos puntos */}
+        {/* Línea de ruta: Real si está calculada, provisoria si no */}
         {origin && destination && (
           <MapboxGL.ShapeSource
             id="route-source"
             shape={{
               type: 'Feature',
-              geometry: {
-                type: 'LineString',
-                coordinates: [
-                  [origin.longitude, origin.latitude],
-                  [destination.longitude, destination.latitude],
-                ],
-              },
+              geometry: route
+                ? route.geometry
+                : {
+                    type: 'LineString',
+                    coordinates: [
+                      [origin.longitude, origin.latitude],
+                      [destination.longitude, destination.latitude],
+                    ],
+                  },
               properties: {},
             }}
           >
-            <MapboxGL.LineLayer
-              id="route-layer"
-              style={{
-                lineColor: COLORS.primary,
-                lineWidth: 3,
-                lineOpacity: 0.6,
-                lineDasharray: [2, 2],
-              }}
-            />
+            {route ? (
+              <MapboxGL.LineLayer
+                id="route-layer-real"
+                style={{
+                  lineColor: COLORS.primary,
+                  lineWidth: 4,
+                  lineOpacity: 0.85,
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                }}
+              />
+            ) : (
+              <MapboxGL.LineLayer
+                id="route-layer-provisional"
+                style={{
+                  lineColor: COLORS.primary,
+                  lineWidth: 3,
+                  lineOpacity: 0.5,
+                  lineDasharray: [2, 2],
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                }}
+              />
+            )}
           </MapboxGL.ShapeSource>
         )}
       </RutaCoMap>

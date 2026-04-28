@@ -7,12 +7,14 @@ import {
   ScrollView,
   Alert,
   Animated,
+  ActivityIndicator,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Location from 'expo-location'
 import { COLORS } from '@/constants/colors'
 import { LocationPoint } from '@/types/planner'
 import { usePlannerStore } from '@/store/plannerStore'
+import { useRouteCalculation } from '@/hooks/useRouteCalculation'
 import { PlannerMap } from '@/components/map/PlannerMap'
 import { LocationInput } from '@/components/planner/LocationInput'
 import { LocationSearchScreen } from './LocationSearchScreen'
@@ -26,15 +28,20 @@ export function PlannerScreen() {
     destination,
     selectingMode,
     error,
+    userLocation,
+    route,
     setOrigin,
     setDestination,
     setSelectingMode,
     setError,
+    setUserLocation,
     swapLocations,
     clearLocations,
+    clearRoute,
   } = usePlannerStore()
 
-  const [userLocation, setUserLocation] = useState<LocationPoint | null>(null)
+  const { calculateRoute, isCalculating, error: routeError } = useRouteCalculation()
+
   const [loadingGeocoding, setLoadingGeocoding] = useState(false)
   const [isPanelExpanded, setIsPanelExpanded] = useState(true)
   const slideAnim = useRef(new Animated.Value(1)).current
@@ -127,27 +134,19 @@ export function PlannerScreen() {
     }
   }, [userLocation, selectingMode, setOrigin, setDestination, setSelectingMode, error])
 
-  const handleStartPlanning = useCallback(() => {
-    if (origin && destination) {
-      console.log('Iniciando planificación de ruta:', { origin, destination })
+  const handleCalculateRoute = useCallback(async () => {
+    console.log('[PlannerScreen] Presionado botón calcular ruta', { origin, destination })
+    const calculatedRoute = await calculateRoute()
+    if (!calculatedRoute) {
+      console.error('[PlannerScreen] Error calculando ruta:', routeError)
+    } else {
+      console.log('[PlannerScreen] Ruta calculada exitosamente:', calculatedRoute)
     }
-  }, [origin, destination])
+  }, [calculateRoute, routeError])
 
   // Si está en modo de selección, mostrar pantalla fullscreen de búsqueda
   if (selectingMode) {
-    return (
-      <LocationSearchScreen
-        type={selectingMode}
-        onSelect={(location) => handleLocationSelect(location, selectingMode)}
-        onCancel={() => {
-          setSelectingMode(null)
-          setError(null)
-        }}
-        excludeLocation={selectingMode === 'origin' ? destination : origin}
-        userLocation={userLocation}
-        onUseMyLocation={handleUseMyLocation}
-      />
-    )
+    return <LocationSearchScreen />
   }
 
   return (
@@ -158,6 +157,7 @@ export function PlannerScreen() {
         destination={destination}
         selectingMode={selectingMode}
         onLocationSelect={handleLocationSelect}
+        route={route}
       />
 
       {/* Panel de controles inferior */}
@@ -189,9 +189,9 @@ export function PlannerScreen() {
             showsVerticalScrollIndicator={false}
           >
             {/* Error global */}
-            {error && (
+            {(error || routeError) && (
               <View style={styles.errorBox}>
-                <Text style={styles.errorText}>⚠️ {error}</Text>
+                <Text style={styles.errorText}>⚠️ {error || routeError}</Text>
               </View>
             )}
 
@@ -223,13 +223,47 @@ export function PlannerScreen() {
             )}
 
             {origin && destination && (
-              <TouchableOpacity
-                style={styles.planButton}
-                onPress={handleStartPlanning}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.planButtonText}>Calcular Ruta 🚴</Text>
-              </TouchableOpacity>
+              <>
+                {/* Información de la ruta si existe */}
+                {route && (
+                  <View style={styles.routeInfoBox}>
+                    <Text style={styles.routeInfoTitle}>🚴 Ruta Calculada</Text>
+                    <Text style={styles.routeInfoText}>
+                      📏 Distancia: {route.distance_km} km
+                    </Text>
+                    <Text style={styles.routeInfoText}>
+                      ⏱️ Tiempo estimado: {route.duration_minutes} min
+                    </Text>
+                    {route.difficulty && (
+                      <Text style={styles.routeInfoText}>
+                        📈 Dificultad: {route.difficulty}
+                      </Text>
+                    )}
+                  </View>
+                )}
+
+                {/* Botón calcular ruta */}
+                <TouchableOpacity
+                  style={[
+                    styles.planButton,
+                    isCalculating && styles.planButtonDisabled,
+                  ]}
+                  onPress={handleCalculateRoute}
+                  activeOpacity={0.8}
+                  disabled={isCalculating}
+                >
+                  {isCalculating ? (
+                    <>
+                      <ActivityIndicator color={COLORS.text} size="small" />
+                      <Text style={styles.planButtonText}> Calculando...</Text>
+                    </>
+                  ) : (
+                    <Text style={styles.planButtonText}>
+                      {route ? 'Recalcular Ruta' : 'Calcular Ruta'} 🚴
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </>
             )}
 
             {(origin || destination) && (
@@ -237,6 +271,7 @@ export function PlannerScreen() {
                 style={styles.clearAllButton}
                 onPress={() => {
                   clearLocations()
+                  clearRoute()
                   setError(null)
                 }}
                 activeOpacity={0.8}
@@ -257,11 +292,21 @@ export function PlannerScreen() {
 
             <View style={styles.compactActions}>
               <TouchableOpacity
-                style={styles.compactPlanButton}
-                onPress={handleStartPlanning}
+                style={[
+                  styles.compactPlanButton,
+                  isCalculating && styles.compactPlanButtonDisabled,
+                ]}
+                onPress={handleCalculateRoute}
                 activeOpacity={0.8}
+                disabled={isCalculating}
               >
-                <Text style={styles.compactPlanButtonText}>Calcular Ruta 🚴</Text>
+                {isCalculating ? (
+                  <ActivityIndicator color={COLORS.text} size="small" />
+                ) : (
+                  <Text style={styles.compactPlanButtonText}>
+                    {route ? '🔄' : '🚴'}
+                  </Text>
+                )}
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -328,6 +373,29 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
   },
+  routeInfoBox: {
+    width: '100%',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: `${COLORS.primary}15`,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    marginBottom: 8,
+    marginTop: 8,
+  },
+  routeInfoTitle: {
+    color: COLORS.primary,
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  routeInfoText: {
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
   planButton: {
     width: '100%',
     borderRadius: 12,
@@ -335,6 +403,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     alignItems: 'center',
     marginTop: 8,
+  },
+  planButtonDisabled: {
+    opacity: 0.6,
   },
   planButtonText: {
     color: '#FFF',
@@ -397,6 +468,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
+  },
+  compactPlanButtonDisabled: {
+    opacity: 0.6,
   },
   compactPlanButtonText: {
     color: '#FFF',

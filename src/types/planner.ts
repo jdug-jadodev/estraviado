@@ -2,7 +2,7 @@ export interface LocationPoint {
   id?: string
   latitude: number
   longitude: number
-  address?: string
+  address?: string 
   placeType?: 'origin' | 'destination'
   timestamp?: number
 }

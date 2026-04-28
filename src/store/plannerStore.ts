@@ -1,20 +1,52 @@
 import { create } from 'zustand'
 import { LocationPoint, RouteCoordinates } from '@/types/planner'
+import { SearchState } from '@/types/search'
+import { CalculatedRoute } from '@/types/route'
 import { isSameLocation } from '@/api/geocoding'
 
 interface PlannerStore {
+  // Ubicaciones
   origin: LocationPoint | null
   destination: LocationPoint | null
   selectingMode: 'origin' | 'destination' | null
   error: string | null
   
-  // Acciones
+  // Ubicación del usuario
+  userLocation: LocationPoint | null
+  locationError: string | null
+  
+  // Estado de búsqueda
+  searchState: SearchState
+  
+  // Estado de ruta calculada
+  route: CalculatedRoute | null
+  isCalculatingRoute: boolean
+  routeError: string | null
+  
+  // Acciones - Ubicaciones
   setOrigin: (location: LocationPoint | null) => boolean
   setDestination: (location: LocationPoint | null) => boolean
   setSelectingMode: (mode: 'origin' | 'destination' | null) => void
   setError: (error: string | null) => void
   swapLocations: () => void
   clearLocations: () => void
+  
+  // Acciones - Ubicación del usuario
+  setUserLocation: (location: LocationPoint | null) => void
+  setLocationError: (error: string | null) => void
+  
+  // Acciones - Búsqueda
+  setSearchQuery: (query: string) => void
+  setSearchResults: (results: LocationPoint[]) => void
+  setSearchLoading: (isLoading: boolean) => void
+  setSearchError: (error: string | null) => void
+  clearSearch: () => void
+  
+  // Acciones - Ruta
+  setRoute: (route: CalculatedRoute | null) => void
+  setIsCalculatingRoute: (isCalculating: boolean) => void
+  setRouteError: (error: string | null) => void
+  clearRoute: () => void
   
   // Getters
   getCoordinates: () => RouteCoordinates
@@ -26,7 +58,19 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
   destination: null,
   selectingMode: null,
   error: null,
+  userLocation: null,
+  locationError: null,
+  searchState: {
+    query: '',
+    results: [],
+    isLoading: false,
+    error: null,
+  },
+  route: null,
+  isCalculatingRoute: false,
+  routeError: null,
   
+  // Acciones - Ubicaciones
   setOrigin: (location) => {
     const state = get()
     
@@ -64,8 +108,45 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
     })
   },
   
-  clearLocations: () => set({ origin: null, destination: null, selectingMode: null, error: null }),
+  clearLocations: () => set({ 
+    origin: null, 
+    destination: null, 
+    selectingMode: null, 
+    error: null 
+  }),
   
+  // Acciones - Ubicación del usuario
+  setUserLocation: (location) => set({ userLocation: location, locationError: null }),
+  setLocationError: (error) => set({ locationError: error }),
+  
+  // Acciones - Búsqueda
+  setSearchQuery: (query) => set((state) => ({
+    searchState: { ...state.searchState, query }
+  })),
+  
+  setSearchResults: (results) => set((state) => ({
+    searchState: { ...state.searchState, results }
+  })),
+  
+  setSearchLoading: (isLoading) => set((state) => ({
+    searchState: { ...state.searchState, isLoading }
+  })),
+  
+  setSearchError: (error) => set((state) => ({
+    searchState: { ...state.searchState, error }
+  })),
+  
+  clearSearch: () => set((state) => ({
+    searchState: { ...state.searchState, query: '', results: [], error: null }
+  })),
+  
+  // Acciones - Ruta
+  setRoute: (route) => set({ route, routeError: null }),
+  setIsCalculatingRoute: (isCalculating) => set({ isCalculatingRoute: isCalculating }),
+  setRouteError: (error) => set({ routeError: error }),
+  clearRoute: () => set({ route: null, routeError: null }),
+  
+  // Getters
   getCoordinates: () => {
     const state = get()
     return {

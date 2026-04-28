@@ -18,6 +18,7 @@ interface LocationSearchProps {
   placeholder?: string
   type?: 'origin' | 'destination'
   excludeLocation?: LocationPoint | null
+  userLocation?: { latitude: number; longitude: number } | null
 }
 
 export function LocationSearch({
@@ -25,13 +26,14 @@ export function LocationSearch({
   placeholder = 'Buscar dirección...',
   type = 'origin',
   excludeLocation = null,
+  userLocation = null,
 }: LocationSearchProps) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<LocationPoint[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [showResults, setShowResults] = useState(false)
 
-  // Debounced search
+  // Debounced search - reduced to 300ms for faster search
   useEffect(() => {
     if (query.length < 2) {
       setResults([])
@@ -41,7 +43,7 @@ export function LocationSearch({
     const timer = setTimeout(async () => {
       setIsLoading(true)
       try {
-        const places = await searchPlaces(query)
+        const places = await searchPlaces(query, userLocation || undefined)
         setResults(places)
         setShowResults(true)
       } catch (error) {
@@ -50,20 +52,20 @@ export function LocationSearch({
       } finally {
         setIsLoading(false)
       }
-    }, 500)
+    }, 300)
 
     return () => clearTimeout(timer)
-  }, [query])
+  }, [query, userLocation])
 
   const handleSelect = useCallback(
     (location: LocationPoint) => {
-      if (excludeLocation && 
+      if (excludeLocation &&
           Math.abs(location.latitude - excludeLocation.latitude) < 0.0001 &&
           Math.abs(location.longitude - excludeLocation.longitude) < 0.0001) {
         alert('Este lugar ya fue seleccionado como ' + (type === 'origin' ? 'punto de llegada' : 'punto de salida'))
         return
       }
-      
+
       onSelect(location)
       setQuery('')
       setResults([])
@@ -71,6 +73,7 @@ export function LocationSearch({
     },
     [onSelect, excludeLocation, type]
   )
+
 
   return (
     <View style={styles.container}>
@@ -109,7 +112,7 @@ export function LocationSearch({
           ) : results.length > 0 ? (
             <FlatList
               data={results}
-              keyExtractor={(item) => item.id || item.address || `${item.latitude}-${item.longitude}`}
+              keyExtractor={(item) => item.id || item.address || `${Math.random()}`}
               scrollEnabled={false}
               renderItem={({ item }) => (
                 <TouchableOpacity
@@ -119,11 +122,8 @@ export function LocationSearch({
                 >
                   <Text style={styles.resultIcon}>📍</Text>
                   <View style={styles.resultContent}>
-                    <Text style={styles.resultAddress} numberOfLines={1}>
+                    <Text style={styles.resultAddress} numberOfLines={2}>
                       {item.address}
-                    </Text>
-                    <Text style={styles.resultCoords}>
-                      {item.latitude.toFixed(4)}, {item.longitude.toFixed(4)}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -168,6 +168,9 @@ const styles = StyleSheet.create({
   },
   clearIcon: {
     padding: 4,
+  },
+  loadingIcon: {
+    marginLeft: 8,
   },
   resultsContainer: {
     backgroundColor: COLORS.surface,

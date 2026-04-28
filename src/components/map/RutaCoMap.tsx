@@ -1,21 +1,15 @@
 import { useRef, forwardRef } from 'react'
 import MapboxGL from '@rnmapbox/maps'
 import { StyleSheet } from 'react-native'
+import { CameraCoords } from '@/types/map'
 
-// Inicializar Mapbox con el token una sola vez cuando se importa el modulo
 MapboxGL.setAccessToken(process.env.EXPO_PUBLIC_MAPBOX_TOKEN!)
-
-interface CameraCoords {
-  longitude: number
-  latitude: number
-  zoom?: number
-}
 
 interface RutaCoMapProps {
   children?: React.ReactNode
   onMapReady?: () => void
   onPress?: (coordinates: [number, number]) => void
-  followUser?: boolean // si true, la camara sigue la posicion del usuario
+  followUser?: boolean
   cameraRef?: React.Ref<MapboxGL.Camera>
   cameraCoords?: CameraCoords | null
 }
@@ -36,21 +30,17 @@ export const RutaCoMap = forwardRef<MapboxGL.MapView, RutaCoMapProps>(
       <MapboxGL.MapView
         ref={ref}
         style={styles.map}
-        // Outdoors muestra curvas de nivel y relieve - ideal para ciclismo
         styleURL={MapboxGL.StyleURL.Outdoors}
-        // Deshabilitar logo de Mapbox (se puede, siempre que se cite en creditos)
         logoEnabled={false}
         attributionEnabled={false}
-        // La brujula aparece cuando el mapa esta rotado
         compassEnabled
-        compassViewPosition={0} // esquina superior derecha
-        onDidFinishLoadingMap={onMapReady}
+        compassViewPosition={3}
+        compassViewMargins={{ x: 10, y: 170 }}
         onPress={(feature) => {
           const coords = feature.geometry.coordinates as [number, number]
           onPress?.(coords)
         }}
       >
-        {/* Camara: controla hacia donde mira el mapa */}
         <MapboxGL.Camera
           ref={cameraRef}
           zoomLevel={cameraCoords?.zoom ?? 13}
@@ -66,14 +56,11 @@ export const RutaCoMap = forwardRef<MapboxGL.MapView, RutaCoMapProps>(
           }
         />
 
-        {/* Punto azul de ubicacion del usuario */}
         <MapboxGL.LocationPuck
           puckBearingEnabled
-          puckAnimationType="compassAndFollowRotation"
           scale={1}
         />
 
-        {/* Aqui van las capas de rutas, pins, etc. */}
         {children}
       </MapboxGL.MapView>
     )

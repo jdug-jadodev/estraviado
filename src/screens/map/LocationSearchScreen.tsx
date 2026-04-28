@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useCallback } from 'react'
 import {
   View,
   StyleSheet,
@@ -11,71 +11,85 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { COLORS } from '@/constants/colors'
 import { LocationPoint } from '@/types/planner'
-import { searchPlaces } from '@/api/geocoding'
+import { usePlannerStore } from '@/store/plannerStore'
+import { useLocationSearch } from '@/hooks/useLocationSearch'
+import { useLocationValidation } from '@/hooks/useLocationValidation'
 
-interface LocationSearchScreenProps {
-  onSelect: (location: LocationPoint) => void
-  onCancel: () => void
-  type: 'origin' | 'destination'
-  excludeLocation?: LocationPoint | null
-  userLocation?: LocationPoint | null
-  onUseMyLocation?: () => void
-}
-
-export function LocationSearchScreen({
-  onSelect,
-  onCancel,
-  type,
-  excludeLocation = null,
-  userLocation = null,
-  onUseMyLocation,
-}: LocationSearchScreenProps) {
+/**
+ * Pantalla de búsqueda de ubicaciones
+ * No recibe props - obtiene estado directamente del store
+ * Esto elimina prop drilling de múltiples niveles
+ */
+export function LocationSearchScreen() {
   const insets = useSafeAreaInsets()
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<LocationPoint[]>([])
-  const [isLoading, setIsLoading] = useState(false)
+  
+  // Obtenemos estado del store directamente
+  const {
+    selectingMode,
+    origin,
+    destination,
+    userLocation,
+    setSelectingMode,
+  } = usePlannerStore()
 
-  // Debounced search
-  useEffect(() => {
-    if (query.length < 2) {
-      setResults([])
-      return
-    }
+  // Usamos custom hook para búsqueda
+  const { query, results, isLoading, setQuery, clearSearch } = useLocationSearch()
 
-    const timer = setTimeout(async () => {
-      setIsLoading(true)
-      try {
-        const places = await searchPlaces(query)
-        setResults(places)
-      } catch (error) {
-        console.error('Search error:', error)
-        setResults([])
-      } finally {
-        setIsLoading(false)
-      }
-    }, 500)
+  // Usamos custom hook para validación
+  const { validateExcludedLocation } = useLocationValidation()
 
-    return () => clearTimeout(timer)
-  }, [query])
+  // Determinamos la ubicación a excluir (la del otro punto)
+  const excludeLocation = selectingMode === 'origin' ? destination : origin
 
   const handleSelect = useCallback(
     (location: LocationPoint) => {
-      if (
-        excludeLocation &&
-        Math.abs(location.latitude - excludeLocation.latitude) < 0.0001 &&
-        Math.abs(location.longitude - excludeLocation.longitude) < 0.0001
-      ) {
-        alert(
-          'Este lugar ya fue seleccionado como ' +
-            (type === 'origin' ? 'punto de llegada' : 'punto de salida')
-        )
+      // Validar que no sea la misma ubicación
+      const validation = validateExcludedLocation(location, excludeLocation)
+      if (!validation.isValid) {
+        alert(validation.message)
         return
       }
 
-      onSelect(location)
+      // Guardar la ubicación seleccionada en el store
+      if (selectingMode === 'origin') {
+        const success = usePlannerStore.getState().setOrigin(location)
+        if (success) {
+          setSelectingMode(null)
+          clearSearch()
+        }
+      } else if (selectingMode === 'destination') {
+        const success = usePlannerStore.getState().setDestination(location)
+        if (success) {
+          setSelectingMode(null)
+          clearSearch()
+        }
+      }
     },
-    [onSelect, excludeLocation, type]
+    [excludeLocation, selectingMode, setSelectingMode, clearSearch, validateExcludedLocation]
   )
+
+  const handleCancel = useCallback(() => {
+    setSelectingMode(null)
+    clearSearch()
+  }, [setSelectingMode, clearSearch])
+
+  const handleUseMyLocation = useCallback(() => {
+    if (!userLocation) return
+
+    if (selectingMode === 'origin') {
+      const success = usePlannerStore.getState().setOrigin(userLocation)
+      if (success) {
+        setSelectingMode(null)
+        clearSearch()
+      }
+    } else if (selectingMode === 'destination') {
+      const success = usePlannerStore.getState().setDestination(userLocation)
+      if (success) {
+        setSelectingMode(null)
+        clearSearch()
+      }
+    }
+  }, [userLocation, selectingMode, setSelectingMode, clearSearch])
 
   const renderResultItem = ({ item }: { item: LocationPoint }) => (
     <TouchableOpacity
@@ -88,13 +102,25 @@ export function LocationSearchScreen({
         <Text style={styles.resultAddress} numberOfLines={2}>
           {item.address}
         </Text>
-        <Text style={styles.resultCoords}>
-          {item.latitude.toFixed(4)}, {item.longitude.toFixed(4)}
-        </Text>
       </View>
       <Text style={styles.arrowIcon}>→</Text>
     </TouchableOpacity>
   )
+
+  const screenTitle =
+    selectingMode === 'origin' ? '📍 PUNTO DE SALIDA' : '🎯 PUNTO DE LLEGADA'
+  const placeholders = {
+    origin: 'Ej: Calle 72, Parque Arvi...',
+    destination: 'Ej: Centro, Estadio El Campín...',
+  }
+  const emptyTitle =
+    selectingMode === 'origin'
+      ? 'Dónde empezamos tu viaje?'
+      : 'Hacia dónde vamos?'
+  const emptySubtitle =
+    selectingMode === 'origin'
+      ? 'Escribe una dirección o lugar'
+      : 'Busca tu destino'
 
   return (
     <SafeAreaView
@@ -103,12 +129,10 @@ export function LocationSearchScreen({
     >
       {/* Header con búsqueda */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={onCancel} style={styles.backButton}>
+        <TouchableOpacity onPress={handleCancel} style={styles.backButton}>
           <Text style={styles.backIcon}>← Atrás</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>
-          {type === 'origin' ? '📍 PUNTO DE SALIDA' : '🎯 PUNTO DE LLEGADA'}
-        </Text>
+        <Text style={styles.title}>{screenTitle}</Text>
       </View>
 
       {/* Buscador */}
@@ -118,9 +142,9 @@ export function LocationSearchScreen({
           <TextInput
             style={styles.input}
             placeholder={
-              type === 'origin'
-                ? 'Ej: Calle 72, Parque Arvi...'
-                : 'Ej: Centro, Estadio El Campín...'
+              selectingMode === 'origin'
+                ? placeholders.origin
+                : placeholders.destination
             }
             placeholderTextColor={COLORS.textSecondary}
             value={query}
@@ -145,22 +169,14 @@ export function LocationSearchScreen({
           // Pantalla inicial sin búsqueda
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateIcon}>🗺️</Text>
-            <Text style={styles.emptyStateTitle}>
-              {type === 'origin'
-                ? 'Dónde empezamos tu viaje?'
-                : 'Hacia dónde vamos?'}
-            </Text>
-            <Text style={styles.emptyStateSubtitle}>
-              {type === 'origin'
-                ? 'Escribe una dirección o lugar'
-                : 'Busca tu destino'}
-            </Text>
+            <Text style={styles.emptyStateTitle}>{emptyTitle}</Text>
+            <Text style={styles.emptyStateSubtitle}>{emptySubtitle}</Text>
 
             {/* Botón de ubicación actual */}
-            {userLocation && onUseMyLocation && (
+            {userLocation && (
               <TouchableOpacity
                 style={styles.myLocationButton}
-                onPress={onUseMyLocation}
+                onPress={handleUseMyLocation}
                 activeOpacity={0.8}
               >
                 <Text style={styles.myLocationIcon}>📌</Text>
@@ -271,7 +287,6 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
   },
@@ -350,10 +365,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '500',
     marginBottom: 4,
-  },
-  resultCoords: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
   },
   arrowIcon: {
     color: COLORS.textSecondary,

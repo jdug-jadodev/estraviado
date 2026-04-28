@@ -2,7 +2,6 @@ import { createStackNavigator } from '@react-navigation/stack'
 import { MapStackParams } from '@/types/navigation/navigation'
 import { MapScreen } from '@/screens/map/MapScreen'
 import { RouteDetailScreen } from '@/screens/map/RouteDetailScreen'
-import { PlannerScreen } from '@/screens/map/PlannerScreen'
 import { ServicePointsScreen } from '@/screens/map/ServicePointsScreen'
 
 
@@ -19,10 +18,6 @@ export function MapStack() {
       <Stack.Screen
         name="RouteDetail"
         component={RouteDetailScreen}
-      />
-      <Stack.Screen
-        name="Planner"
-        component={PlannerScreen}
       />
       <Stack.Screen
         name="ServicePoints"
