@@ -9,6 +9,7 @@ interface PlannerStore {
   origin: LocationPoint | null
   destination: LocationPoint | null
   selectingMode: 'origin' | 'destination' | null
+  pinDropMode: 'origin' | 'destination' | null
   error: string | null
   
   // Ubicación del usuario
@@ -23,10 +24,15 @@ interface PlannerStore {
   isCalculatingRoute: boolean
   routeError: string | null
   
+  // Estado de modo dibujo
+  isDrawingMode: boolean
+  drawnStrokes: LocationPoint[][]
+  
   // Acciones - Ubicaciones
   setOrigin: (location: LocationPoint | null) => boolean
   setDestination: (location: LocationPoint | null) => boolean
   setSelectingMode: (mode: 'origin' | 'destination' | null) => void
+  setPinDropMode: (mode: 'origin' | 'destination' | null) => void
   setError: (error: string | null) => void
   swapLocations: () => void
   clearLocations: () => void
@@ -48,6 +54,13 @@ interface PlannerStore {
   setRouteError: (error: string | null) => void
   clearRoute: () => void
   
+  // Acciones - Modo dibujo
+  setIsDrawingMode: (isDrawing: boolean) => void
+  beginNewStroke: () => void
+  addDrawnPoint: (point: LocationPoint) => void
+  undoLastStroke: () => void
+  clearDrawnPoints: () => void
+  
   // Getters
   getCoordinates: () => RouteCoordinates
   isValid: () => boolean
@@ -57,6 +70,7 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
   origin: null,
   destination: null,
   selectingMode: null,
+  pinDropMode: null,
   error: null,
   userLocation: null,
   locationError: null,
@@ -69,6 +83,8 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
   route: null,
   isCalculatingRoute: false,
   routeError: null,
+  isDrawingMode: false,
+  drawnStrokes: [],
   
   // Acciones - Ubicaciones
   setOrigin: (location) => {
@@ -97,7 +113,16 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
     return true
   },
   
-  setSelectingMode: (mode) => set({ selectingMode: mode }),
+  setSelectingMode: (mode) => set(
+    mode !== null
+      ? { selectingMode: mode, pinDropMode: null, isDrawingMode: false, drawnStrokes: [] }
+      : { selectingMode: null }
+  ),
+  setPinDropMode: (mode) => set(
+    mode !== null
+      ? { pinDropMode: mode, selectingMode: null, isDrawingMode: false, drawnStrokes: [] }
+      : { pinDropMode: null }
+  ),
   setError: (error) => set({ error }),
   
   swapLocations: () => {
@@ -111,7 +136,8 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
   clearLocations: () => set({ 
     origin: null, 
     destination: null, 
-    selectingMode: null, 
+    selectingMode: null,
+    pinDropMode: null,
     error: null 
   }),
   
@@ -145,6 +171,27 @@ export const usePlannerStore = create<PlannerStore>((set, get) => ({
   setIsCalculatingRoute: (isCalculating) => set({ isCalculatingRoute: isCalculating }),
   setRouteError: (error) => set({ routeError: error }),
   clearRoute: () => set({ route: null, routeError: null }),
+  
+  // Acciones - Modo dibujo
+  setIsDrawingMode: (isDrawing) => set(
+    isDrawing
+      ? { isDrawingMode: true, selectingMode: null, pinDropMode: null, route: null, routeError: null }
+      : { isDrawingMode: false }
+  ),
+  beginNewStroke: () => set((state) => ({
+    drawnStrokes: [...state.drawnStrokes, []],
+  })),
+  addDrawnPoint: (point) => set((state) => {
+    if (state.drawnStrokes.length === 0) return state
+    const strokes = state.drawnStrokes.map((s, i) =>
+      i === state.drawnStrokes.length - 1 ? [...s, point] : s
+    )
+    return { drawnStrokes: strokes
+  }}),
+  undoLastStroke: () => set((state) => ({
+    drawnStrokes: state.drawnStrokes.slice(0, -1),
+  })),
+  clearDrawnPoints: () => set({ drawnStrokes: [], isDrawingMode: false }),
   
   // Getters
   getCoordinates: () => {

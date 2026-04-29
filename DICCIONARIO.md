@@ -38,11 +38,12 @@
    - [Planner Components](#planner-components)
    - [Carpetas vacías preparadas](#carpetas-vacías-preparadas)
 9. [Hooks](#9-hooks)
-10. [Debug](#10-debug)
-11. [Constantes](#11-constantes)
-12. [Dependencias Clave](#12-dependencias-clave)
-13. [Variables de Entorno](#13-variables-de-entorno)
-14. [Flujos Principales](#14-flujos-principales)
+10. [Utils](#10-utils-nuevas-)
+11. [Debug](#11-debug)
+12. [Constantes](#12-constantes)
+13. [Dependencias Clave](#13-dependencias-clave)
+14. [Variables de Entorno](#14-variables-de-entorno)
+15. [Flujos Principales](#15-flujos-principales)
 
 ---
 
@@ -338,11 +339,13 @@ console.log(`${route.distance_km} km | ${route.duration_minutes} min`)
 
 #### `index.ts` — Barrel Export
 ```ts
-export { getRoute, calculateGreatCircleDistance } from './getRoute'
+export { getRoute, getRouteWithWaypoints, matchDrawnRoute, calculateGreatCircleDistance } from './getRoute'
 export type { CalculatedRoute, RouteStep, RouteCalculationOptions } from '@/types/route'
 ```
 
-Centraliza exports. Permite: `import { getRoute } from '@/api/routing'`
+Centraliza exports. Permite: `import { getRoute, matchDrawnRoute } from '@/api/routing'`
+
+> **`matchDrawnRoute`** — Firma: `matchDrawnRoute(points, options?) → Promise<CalculatedRoute>`. Usa el endpoint OSRM `/match/v1` (map-matching) para adherir un trazo GPS a las calles. Disponible pero no usada en el flujo principal actual (se usa `getRoute` simple).
 
 ---
 
@@ -426,7 +429,7 @@ interface AuthStore {
 | | |
 |---|---|
 | **Hook** | `usePlannerStore()` |
-| **Estado** | `origin`, `destination`, `selectingMode`, `error`, `userLocation`, `locationError`, `searchState`, `route`, `isCalculatingRoute`, `routeError` |
+| **Estado** | `origin`, `destination`, `selectingMode`, `error`, `userLocation`, `locationError`, `searchState`, `route`, `isCalculatingRoute`, `routeError`, `isDrawingMode`, `drawnStrokes` |
 
 **Estado de ubicaciones:**
 
@@ -434,10 +437,11 @@ interface AuthStore {
 |--------|---------|----------|
 | `setOrigin(location)` | `boolean` | Guarda el punto de salida. Valida que no sea igual al destino (tolerancia 50m). |
 | `setDestination(location)` | `boolean` | Igual que `setOrigin` pero para el destino. |
-| `setSelectingMode(mode)` | `void` | Activa el modo de selección (`'origin'`, `'destination'`, o `null`). |
+| `setSelectingMode(mode)` | `void` | Activa el modo de selección por búsqueda (`'origin'`, `'destination'`, o `null`). Muestra `LocationSearchScreen`. |
+| `setPinDropMode(mode)` | `void` | ⭐ Activa el modo de pin drop (`'origin'`, `'destination'`, o `null`). Cierra `LocationSearchScreen` y muestra banner en el mapa para tocar y marcar el punto. |
 | `setError(error)` | `void` | Guarda mensaje de error. |
 | `swapLocations()` | `void` | Intercambia origen y destino. |
-| `clearLocations()` | `void` | Resetea ubicaciones. |
+| `clearLocations()` | `void` | Resetea ubicaciones + `selectingMode` + `pinDropMode`. |
 | `getCoordinates()` | `RouteCoordinates` | Devuelve `{origin, destination}`. |
 | `isValid()` | `boolean` | `true` si origen Y destino existen. |
 
@@ -467,7 +471,19 @@ interface AuthStore {
 | `setRouteError(error)` | `void` | Guarda errores del cálculo de ruta. |
 | `clearRoute()` | `void` | Resetea la ruta calculada. |
 
-**Usada en:** `LocationSearchScreen.tsx`, `MapScreen.tsx`, `useLocationSearch.ts`, `useRouteCalculation.ts`
+**Estado de dibujo manual:**
+
+| Acción | Retorna | Qué hace |
+|--------|---------|----------|
+| `setIsDrawingMode(mode)` | `void` | Activa/desactiva el modo de dibujo. Al activar: limpia `selectingMode`, `pinDropMode`, **y también `route` + `routeError`** (evita datos rancios en la card). |
+| `beginNewStroke()` | `void` | Abre un nuevo array vacío en la pila `drawnStrokes`. Llamado al poner el dedo en el mapa. |
+| `addDrawnPoint(point)` | `void` | Añade un `LocationPoint` al **último** stroke de la pila. |
+| `undoLastStroke()` | `void` | Elimina únicamente el último trazo de la pila (ctrl+z). Los anteriores se conservan. |
+| `clearDrawnPoints()` | `void` | Vacía `drawnStrokes` completamente y desactiva `isDrawingMode`. |
+
+**Usada en:** `LocationSearchScreen.tsx`, `MapScreen.tsx`, `useLocationSearch.ts`, `useRouteCalculation.ts`, `DrawingModeBanner.tsx`
+
+> **Estado de dibujo:** `drawnStrokes: LocationPoint[][]` — pila de trazos. Cada elemento es un array de puntos de un trazo individual. Permite deshacer trazo a trazo con `undoLastStroke()`. `setSelectingMode` y `setPinDropMode` (al activar con valor no-null) resetean `drawnStrokes: []` automáticamente.
 
 ---
 
@@ -828,48 +844,85 @@ Formulario de registro con campos: nombre completo, username (opcional), email, 
 
 ### Map
 
-#### `src/screens/map/MapScreen.tsx` — `MapScreen` (Actualizado ✅)
+#### `src/screens/map/MapScreen.tsx` — `MapScreen` (Refactorizado ✅)
 Pantalla principal del mapa. Muestra Mapbox con el mapa Outdoors, ubicación del usuario, y panel planificador deslizable. **Integrado con ruteo real (OSRM)**.
 
-**CAMBIOS RECIENTES:**
-- ✅ Integrado hook `useRouteCalculation()` para cálculo de rutas
-- ✅ Botones "Calcular Ruta 🚴" conectados a OSRM API
-- ✅ Renderiza línea **sólida** cuando ruta está calculada
-- ✅ Renderiza línea **punteada** como fallback provisional
-- ✅ Indicador de carga (spinner) durante cálculo
-- ✅ Muestra información: distancia, tiempo, dificultad
+**CAMBIOS RECIENTES — Modo Dibujo (trazo libre) ✅:**
+- ✅ **Bug corregido:** primer punto ya no se registra al pulsar el botón lápiz — `isDrawingMode` removido del `onPress` de Mapbox
+- ✅ **Trazo continuo:** overlay transparente con Responder API captura movimiento de 1 dedo → `getCoordinateFromView` convierte píxeles a coordenadas → punto añadido cada 15px de movimiento
+- ✅ **2 dedos = pan/zoom:** `onStartShouldSetResponder` retorna `false` con más de 1 toque → Mapbox recibe el gesto nativamente
+- ✅ **Panel colapsa automáticamente** al activar el modo dibujo (250ms) → deja el mapa libre
+- ✅ Refs nuevos: `isDrawingModeRef`, `lastDrawnScreenPos`, constante `MIN_DRAW_DISTANCE_PX = 15`
+- ✅ Callbacks nuevos: `handleDrawGestureStart`, `handleDrawGestureMove`, `handleDrawGestureEnd`
 
-| Elemento | Descripción |
-|----------|-------------|
-| `RutaCoMap` | Componente de mapa con cámara y puck de usuario |
-| Botón "+ Planificar ruta" | Abre modo planificador con panel deslizable inferior |
-| Panel deslizable | Muestra inputs de origen/destino. Se arrastra arriba/abajo. |
-| Botón "Calcular Ruta 🚴" | Llama a `useRouteCalculation().calculateRoute()` → OSRM API → renderiza ruta real |
-| Spinner de carga | Visible durante petición a OSRM (mientras `isCalculating: true`) |
-| Botón circunflejo | Centra cámara en ruta. Sube con el panel para mantenerse visible |
-| Botón toggle | Muestra u oculta el panel expandido (duración 300-700ms) |
-| Banner de error | Muestra permisos denegados o errores de cálculo |
+**CAMBIOS ANTERIORES (REFACTOR):**
+- ✅ Componente `PinDropBanner` extraído como componente independiente
+- ✅ Componente `RouteDetailsCard` extraído como componente independiente
+- ✅ Eliminado código JSX inline duplicado (~95 líneas)
+- ✅ Bug de solapamiento: `RouteDetailsCard` retorna `null` cuando `pinDropMode` está activo
+- ✅ Mejor mantenibilidad: cada componente auto-contiene su lógica y estilos
+- ✅ Estado global para evitar prop drilling: ambos componentes leen de `usePlannerStore`
 
-**Estado local (reducido):**
+**CAMBIOS ANTERIORES:**
+- ✅ Panel deslizable con animaciones suaves (300ms ocultar, 400ms mostrar)
+- ✅ Vista compacta y expandida del panel (toggle con botones − / ⌃)
+- ✅ Auto-colapso del panel al presionar "Calcular Ruta 🚴" (ambos botones: expandido y compacto)
+- ✅ Route details card flotante mostrando: distancia (km), duración (Xh Ym), dificultad (color)
+- ✅ Indicador de carga (spinner) durante cálculo de OSRM
+- ✅ Renderiza línea **sólida** azul cuando ruta está calculada (geometría real OSRM)
+- ✅ Renderiza línea **punteada** gris como fallback cuando no hay ruta
+- ✅ Integración con `useRouteCalculation()` hook
+- ✅ `clearRoute()` llamado al iniciar nuevo cálculo → evita mostrar ruta anterior
+
+| Elemento | Descripción | Estado |
+|----------|-------------|--------|
+| `RutaCoMap` | Componente de mapa con cámara y puck de usuario | ✅ Actualizado |
+| Botón "+ Planificar ruta" | Abre modo planificador con panel deslizable | ✅ Funcional |
+| Panel deslizable | Muestra inputs de origen/destino. Se arrastra arriba/abajo. Dos vistas: expandida/compacta | ✅ Completo |
+| Botón "Calcular Ruta 🚴" | Llama a `useRouteCalculation().calculateRoute()` → OSRM API → renderiza ruta real. **Ahora colapsa panel automáticamente** | ✅ Completo |
+| Spinner de carga | Visible durante petición a OSRM (mientras `isCalculating: true`) | ✅ Funcional |
+| Botón circunflejo | Centra cámara en ruta. Sube con el panel para mantenerse visible | ✅ Funcional |
+| Botón toggle − / ⌃ | Expande/colapsa el panel con animación (solo visible cuando hay origen y destino) | ✅ Nuevo |
+| Route Details Card | Card flotante en la parte superior mostrando distancia, duración, dificultad. Solo visible cuando panel colapsado | ✅ Nuevo |
+| Banner de error | Muestra permisos denegados o errores de cálculo | ✅ Funcional |
+| Botón lápiz ✏️ | Activa modo de dibujo libre. Posicionado flotante a la derecha. Rojo cuando activo. **Oculto cuando `selectingMode !== null` (búsqueda de dirección abierta).** | ✅ Completo |
+| Overlay de dibujo | `View` transparente `absoluteFillObject` zIndex 15. 1 dedo = trazo, 2 dedos = pan/zoom | ✅ Completo |
+| `DrawingModeBanner` | Banner púrpura con contador de trazos, botón **Calcular**, **↩ Deshacer** (undo stack) y **Limpiar** | ✅ Completo |
+
+**Estado local (Animated refs y state):**
 - `cameraCoords` — Posición y zoom de la cámara
 - `locationError` — Mensaje de error de permisos
 - `panelHeight` — Alto total del panel medido con `onLayout`
+- `panelDragY` — Animated.Value para la posición Y del panel (se modifica con gestos)
 - `plannerActive` — Si está en modo planificador
-- `isPanelExpanded` — Si panel está expandido
+- `isPanelExpanded` — Si panel está expandido (true) o compacto (false)
+- `panelHiddenY` — Ref: altura a la que se oculta el panel (panelHeight - 80)
+- `isPanelExpandedRef` — Ref: valor actual de isPanelExpanded para acceso en PanResponder
+- `isGestureEnabledRef` — Ref: habilitar gestos solo cuando hay origen y destino
+- `isDrawingModeRef` — Ref: espejo sincronizado de `isDrawingMode` para uso en callbacks async
+- `lastDrawnScreenPos` — Ref: última posición (x,y) del dedo para throttle de puntos
+- `MIN_DRAW_DISTANCE_PX = 15` — Constante: distancia mínima en píxeles para registrar nuevo punto
 
 **Estado global (del store via `useRouteCalculation`):**
 - `origin`, `destination` — Puntos de ruta
 - `route` — Ruta calculada (null hasta que se presiona botón)
 - `isCalculatingRoute` — Si está esperando respuesta de OSRM
 - `routeError` — Error del cálculo
+- `pinDropMode` — Si está activo, el mapa captura el siguiente toque como punto de salida o llegada
+- `isDrawingMode` — Si está activo, el overlay captura trazos libres del dedo
+- `drawnStrokes` — Pila de trazos: `LocationPoint[][]`. Cada elemento es un trazo individual del dedo.
 
-**Flujo de cálculo de ruta:**
+**Flujo de cálculo de ruta (ACTUALIZADO):**
 ```
-Usuario presiona "Calcular Ruta 🚴"
+Usuario presiona "Calcular Ruta 🚴" (panel expandido o compacto)
+  ↓
+Panel se colapsa automáticamente (250ms) → hideTarget = panelHeight - 80
   ↓
 useRouteCalculation.calculateRoute() inicia
   ↓
-setIsCalculatingRoute(true) → spinner visible
+clearRoute() → ruta anterior eliminada del store (mapa muestra línea punteada)
+  ↓
+setIsCalculatingRoute(true) → spinner visible en botón
   ↓
 getRoute(origin, destination) → petición a OSRM
   ↓
@@ -879,20 +932,72 @@ setRoute(calculatedRoute) → guardado en store
   ↓
 setIsCalculatingRoute(false) → spinner desaparece
   ↓
-MapScreen renderiza:
-  - LineLayer sólida (ruta real de OSRM)
-  - Información: "15.2 km | 45 min | moderado"
+MapScreen renderiza automáticamente:
+  - LineLayer sólida azul (ruta real de OSRM)
+  - Route details card flotante: distancia, duración (Xh Ym), dificultad coloreada
+  - Información visible sin cerrar el mapa
 ```
 
-**Gestos (PanResponder):**
-- **Panel expandido:** deslizar 50px+ hacia abajo → oculta (300ms)
-- **Panel oculto:** deslizar 50px+ hacia arriba → muestra (700ms)
+**Gestos (PanResponder - Actualizado):**
+- **Panel expandido + deslizar 50px+ hacia abajo** → oculta (300ms)
+- **Panel expandido + deslizar con velocidad > 0.3 hacia abajo** → oculta instantáneo
+- **Panel oculto + deslizar 50px+ hacia arriba** → muestra (400ms)
+- **Panel oculto + deslizar con velocidad > 0.3 hacia arriba** → muestra instantáneo
+- **Botón toggle − (expandido)** → oculta panel
+- **Botón toggle ⌃ (compacto)** → muestra panel
+- **Activar `pinDropMode`** → colapsa panel automáticamente (250ms) para dejar el mapa despejado
+- **Activar `isDrawingMode`** → colapsa panel automáticamente (250ms) para dejar el mapa libre
 - Los gestos solo funcionan si hay origen Y destino
+
+**Overlay de dibujo libre (zIndex 15, encima del mapa):**
+- Solo montado cuando `isDrawingMode && plannerActive`
+- `onStartShouldSetResponder`: retorna `true` solo si `touches.length === 1` → 1 dedo dibuja
+- `onMoveShouldSetResponder`: igual que arriba
+- `onResponderGrant` → `handleDrawGestureStart`: llama `beginNewStroke()` (nuevo trazo en la pila) y registra primer punto
+- `onResponderMove` → `handleDrawGestureMove`: añade punto al trazo activo si el dedo se movió ≥15px
+- `onResponderRelease/Terminate` → `handleDrawGestureEnd`: limpia `lastDrawnScreenPos`
+- `onResponderTerminationRequest: true` → el mapa puede retomar el control al añadirse 2° dedo
+- Conversión de píxeles a coords: `mapRef.current?.getCoordinateFromView([x, y])`
+
+**Vistas visuales:**
+
+1. **Vista expandida (isPanelExpanded: true)**
+   - ScrollView con:
+     - Botón "✕ Cancelar" para salir del modo planificador
+     - Inputs de origin/destination
+     - Botón "⇅ Intercambiar" (si hay ambos puntos)
+     - Botón "Calcular Ruta 🚴" (si hay ambos puntos) - **AHORA COLAPSA PANEL**
+     - Botón "Limpiar todo" (si hay al menos un punto)
+
+2. **Vista compacta (isPanelExpanded: false)**
+   - Barra de 80px mostrando:
+     - Label resumido: "📍 Salida → 🎯 Llegada" (direcciones cortas)
+     - Botón "🚴" (calcular ruta) - **AHORA COLAPSA PANEL**
+     - Botón "✎" (editar/expandir panel)
+
+3. **Route Details Card (NUEVO)**
+   - Solo visible cuando: `route !== null AND plannerActive AND !isPanelExpanded`
+   - Posición: `top: insets.top + 16` (debajo del safe area)
+   - Contenido:
+     ```
+     ┌─────────────────┐
+     │ 📍 Tu Ruta      │  ← Header azul claro
+     ├─────────────────┤
+     │ Distancia: 15.2 km
+     │ Duración:  2h 14m
+     │ Dificultad: 🔴 dificil (rojo)
+     └─────────────────┘
+     ```
+   - Estilos:
+     - Fondo blanco, bordes oscuros, sombra
+     - Dificultad: colores verde (plano), naranja (moderado), rojo (dificil)
+     - Font: semibold 14px
 
 **Permisos al montar:**
 - Solicita `Location.ForegroundPermissions`
 - Centra mapa en ubicación del usuario
 - Obtiene ubicación de alta precisión en background
+- Mensaje de error si se deniegan permisos
 
 ---
 
@@ -923,35 +1028,48 @@ Pantalla de planificación de rutas integrada en `MapScreen.tsx` como panel desl
 
 ---
 
-#### `src/screens/map/LocationSearchScreen.tsx` — `LocationSearchScreen` (Refactorizado ✅)
-Pantalla fullscreen para buscar una ubicación por nombre/dirección.
-
-✨ **CAMBIO ARQUITECTÓNICO (Refactor):** 
-- **ANTES:** Recibía 6 props (prop drilling de 4+ niveles)
-- **AHORA:** Sin props. Obtiene todo del store. Usar custom hooks.
+#### `src/screens/map/LocationSearchScreen.tsx` — `LocationSearchScreen` (Actualizado ✅)
+Pantalla fullscreen para buscar una ubicación por nombre/dirección. Adaptada según `selectingMode` (`'origin'` o `'destination'`).
 
 ```tsx
-// ✅ Nuevo uso (sin props)
+// Sin props — obtiene todo del store
 <LocationSearchScreen />
 ```
 
 **Integración con estado global:**
-- Usa `usePlannerStore()` directamente para: `selectingMode`, `origin`, `destination`, `userLocation`, `setSelectingMode`, `setOrigin`, `setDestination`
-- Usa `useLocationSearch()` para debounce de búsqueda (300ms) y gestión de resultados
-- Usa `useLocationValidation()` para validar que ubicaciones no sean duplicadas
+- Usa `usePlannerStore()` para: `selectingMode`, `origin`, `destination`, `userLocation`, `setSelectingMode`, `setPinDropMode`
+- Usa `useLocationSearch()` para debounce de búsqueda (300ms)
+- Usa `useLocationValidation()` para validar duplicados
 
 **Lógica:**
 1. Debounce de 300ms en input
 2. Busca con `searchPlaces()` (Nominatim/OpenStreetMap)
-3. Valida resultado con tolerancia (no puede ser igual a otra ubicación)
+3. Valida que el resultado no sea igual a la otra ubicación
 4. Guarda en store y cierra pantalla automáticamente
-5. "Usar mi ubicación" → geocoding inverso + store
+5. "Usar mi ubicación" → usa `userLocation` del store directo
+6. ⭐ Botón "Marcar en el mapa" → llama `setPinDropMode('origin'|'destination')` y cierra la pantalla
 
-**Beneficios del refactor:**
-- Eliminó prop drilling masivo
-- Componente más independiente y reutilizable
-- Lógica de búsqueda encapsulada en custom hook
-- Estado sincronizado entre MapScreen y PlannerScreen
+**Botón de pin drop (NUEVO ✨):**
+- Si `selectingMode === 'origin'` → solo aparece botón verde **"Marcar punto de salida en el mapa"**
+- Si `selectingMode === 'destination'` → solo aparece botón rojo **"Marcar punto de llegada en el mapa"**
+- Al presionar: cierra `LocationSearchScreen`, activa `pinDropMode` → `MapScreen` muestra banner y captura el toque del usuario
+- Muestra `✓ dirección` si ya hay un punto previamente guardado para ese modo
+
+**Layout (pantalla inicial, sin búsqueda activa):**
+```
+← Atrás   📍 PUNTO DE SALIDA (o 🎯 PUNTO DE LLEGADA)
+─────────────────────────────────────────────────────
+🔍 [Busca una dirección...                        ✕]
+─────────────────────────────────────────────────────
+🗺️   Dónde empezamos tu viaje?
+     Escribe una dirección o lugar
+
+📌 Usar mi ubicación
+   Mi ubicación actual
+
+📍 Marcar punto de salida en el mapa     ← solo en modo origin
+   Toca el mapa para marcar              (o 🎯 llegada en modo destination)
+```
 
 ---
 
@@ -1065,6 +1183,115 @@ Mapa interactivo del planificador. Renderiza origen, destino, y línea de ruta (
 ```
 
 **Usada en:** `MapScreen.tsx`
+
+---
+
+#### `src/components/map/PinDropBanner.tsx` — `PinDropBanner` (NUEVO ✨)
+Banner flotante que instruye al usuario a tocar el mapa para marcar un punto de salida o llegada. Componente extraído de `MapScreen` para mejorar legibilidad.
+
+| Acceso | Descripción |
+|--------|-------------|
+| `pinDropMode` | Lee del store `usePlannerStore()` |
+| `setPinDropMode` | Llama al store para cancelar el modo |
+
+**Qué hace:**
+- ✅ Retorna `null` si `pinDropMode` es `null` (no montado si no hay pin drop activo)
+- ✅ Muestra mensaje contextual según `pinDropMode === 'origin'` o `'destination'`
+- ✅ Botón "Cancelar" para salir del modo
+- ✅ Posicionado debajo de `insets.top` automáticamente
+- ✅ Z-index: 30 (encima del mapa, pero debajo de otros modales si necesario)
+
+**Renderizado en:** `MapScreen.tsx` como `<PinDropBanner />`
+
+**Bug resuelto:** ⭐ Esta separación evita que el banner se sobreponza con la card de detalles de ruta. Ambos leen `pinDropMode` del store y `RouteDetailsCard` retorna `null` cuando `pinDropMode !== null`.
+
+---
+
+#### `src/components/map/DrawingModeBanner.tsx` — `DrawingModeBanner` (NUEVO ✨)
+Tres botones circulares flotantes en el **lado derecho** de la pantalla durante el modo de dibujo. Reemplaza el antiguo banner horizontal que obstruía la vista del mapa.
+
+| Prop | Tipo | Descripción |
+|------|------|-------------|
+| `onFinish` | `() => void \| Promise<void>` | Callback al presionar el botón Calcular (`✓`) |
+
+**Acceso global:**
+- Lee `isDrawingMode`, `drawnStrokes` del store `usePlannerStore()`
+- Llama `undoLastStroke()` al presionar `↩`
+- Llama `clearDrawnPoints()` al presionar `✕`
+
+**Qué hace:**
+- ✅ Retorna `null` si `!isDrawingMode`
+- ✅ Tres botones circulares (44×44 px) apilados verticalmente a la derecha, debajo del safe area
+- ✅ `✓` (morado sólido `#8b5cf6`) — calcula ruta con los trazos dibujados
+- ✅ `↩` (fondo oscuro + borde morado) — deshace el último trazo (undo stack)
+- ✅ `✕` (fondo oscuro + borde rojo) — borra todos los trazos y sale del modo dibujo
+- ✅ Los tres botones tienen `opacity: 0.35` cuando no hay trazos (`disabled`)
+- ✅ `pointerEvents="box-none"` en el contenedor → los toques entre botones pasan al overlay de dibujo
+- ✅ Z-index: 30, `right: 14`, `top: insets.top + 80`
+
+**Sistema de deshacer (Undo Stack):**
+- Cada trazo del dedo se guarda como un elemento independiente en `drawnStrokes[][]`
+- `↩` llama `undoLastStroke()` → `drawnStrokes.slice(0, -1)` → elimina solo el último
+- Cada trazo se visualiza como una línea independiente en el mapa; al deshacer desaparece
+
+**Flujo al presionar `✓` (en `MapScreen`):**
+1. Aplana todos los trazos: `drawnStrokes.flat()` → array de todos los puntos crudos
+2. Simplifica con RDP a **máximo 5 waypoints clave** (`simplifyDrawnPoints(allPoints, 5)`)
+3. Primer waypoint = origen, último = destino
+4. Llama `getRouteWithWaypoints(waypoints, { continue_straight: 'true' })` → OSRM sigue el trazo sin zigzags
+5. Centra la cámara en el bounding box completo de la ruta calculada (`flyTo`)
+6. Limpia trazos y muestra panel compacto con distancia/tiempo
+
+**Renderizado en:** `MapScreen.tsx` como `<DrawingModeBanner onFinish={handleFinishDrawing} />`
+
+---
+
+#### `src/components/map/RouteDetailsCard.tsx` — `RouteDetailsCard` (NUEVO ✨)
+Card flotante que muestra distancia, duración y dificultad de la ruta calculada. Componente extraído de `MapScreen` para mejorar mantenibilidad.
+
+| Prop | Tipo | Descripción |
+|------|------|-------------|
+| `plannerActive` | `boolean` | Si el planificador está activo |
+| `isPanelExpanded` | `boolean` | Si el panel deslizable está expandido |
+
+**Acceso global:**
+- Lee `route` del store `usePlannerStore()`
+- Lee `pinDropMode` del store para evitar solapamiento
+
+**Qué hace:**
+- ✅ Retorna `null` si no hay ruta, si el planificador está inactivo, si el panel está expandido
+- ✅ Retorna `null` si `!!pinDropMode` — evita solapamiento con `PinDropBanner`
+- ✅ Retorna `null` si `isDrawingMode` — evita solapamiento con los botones de dibujo
+- ✅ La ruta se limpia del store al activar `isDrawingMode`, doble protección contra datos rancios
+- ✅ Muestra: distancia (km), duración (formato "Xh Ym")
+
+**Renderizado en:** `MapScreen.tsx` como `<RouteDetailsCard plannerActive={plannerActive} isPanelExpanded={isPanelExpanded} />`
+
+---
+
+#### Refactor de `MapScreen.tsx` (Actualizado ✅)
+`MapScreen` se simplificó extrayendo dos componentes y mejorando la legibilidad.
+
+**Cambios:**
+- ✅ Removidas 60+ líneas de JSX inline para pin drop banner
+- ✅ Removidas 35+ líneas de JSX inline para route details card
+- ✅ Removidos 15 estilos que vivían en `styles` y ahora están en sus respectivos componentes
+- ✅ Componentes reutilizan estado global (`usePlannerStore`) sin prop drilling
+- ✅ Bug de solapamiento corregido: `RouteDetailsCard` verifica `!!pinDropMode`
+
+**Renderizado actual:**
+```tsx
+{isDrawingMode && plannerActive && <View {/* overlay transparente zIndex 15 con Responders */} />}
+{plannerActive && <PinDropBanner />}
+{plannerActive && <DrawingModeBanner onFinish={handleFinishDrawing} />}
+<RouteDetailsCard plannerActive={plannerActive} isPanelExpanded={isPanelExpanded} />
+```
+
+**Beneficios:**
+- 📉 Líneas en MapScreen reducidas (~880 → ~850)
+- 🎯 Responsabilidades claras: cada componente auto-contiene su lógica y estilos
+- 🔄 Reutilizables: si necesitas mostrar estos elementos en otra pantalla, solo importas los componentes
+- 🐛 Bugs más fáciles de aislar: cada componente es independiente y testeable
 
 ---
 
@@ -1269,6 +1496,7 @@ Custom hook para calcular rutas reales entre dos puntos. Integrado con OSRM y `u
 **Qué hace:**
 - ✅ Valida que existan origen y destino
 - ✅ Valida que estén separados al menos 100 metros
+- ✅ **Limpia la ruta anterior** (`clearRoute`) antes de iniciar el cálculo → evita mostrar la ruta vieja mientras se espera la nueva
 - ✅ Llama a `getRoute()` con perfil `'bike'` (ciclismo)
 - ✅ Maneja errores de OSRM: `NoRoute`, `InvalidInput`, `ServerError`
 - ✅ Guarda ruta en `usePlannerStore().route` automáticamente
@@ -1291,7 +1519,51 @@ await calculateRoute()
 
 ---
 
-## 10. Debug
+## 10. Utils (Nuevas ✨)
+
+### `src/utils/formatDuration.ts` — `formatDuration()` (NUEVO ✨)
+Función utilitaria para convertir duración en minutos a formato legible en español.
+
+**Firma:**
+```ts
+export function formatDuration(minutes: number): string
+```
+
+**Qué retorna:**
+```
+45    → "45m"
+60    → "1h"
+90    → "1h 30m"
+150   → "2h 30m"
+```
+
+**Usada en:**
+- `src/api/routing/getRoute.ts` (logs de ruta)
+- `src/hooks/useRouteCalculation.ts` (logs de resultado)
+- `src/screens/map/MapScreen.tsx` (card de detalles)
+
+---
+
+### `src/utils/simplifyPoints.ts` — `simplifyDrawnPoints()`, `sampleEvenlyAlongPath()` (NUEVO ✨)
+Utilidades para preprocesar trazos dibujados a mano antes de enviarlos a la API de ruteo.
+
+**`simplifyDrawnPoints(points, maxWaypoints?)`**
+```ts
+export function simplifyDrawnPoints(points: LocationPoint[], maxWaypoints = 8): LocationPoint[]
+```
+Aplica el algoritmo **Ramer-Douglas-Peucker (RDP)** para eliminar puntos redundantes preservando cambios de dirección reales. Tolerancia progresiva: empieza en 0.0002° y aumenta hasta 0.01° hasta obtener ≤ `maxWaypoints` puntos.
+
+**`sampleEvenlyAlongPath(points, count?)`**
+```ts
+export function sampleEvenlyAlongPath(points: LocationPoint[], count = 25): LocationPoint[]
+```
+Muestrea `count` puntos equidistantes a lo largo de la polilínea mediante interpolación lineal entre segmentos. Ideal para map-matching (OSRM `/match`).
+
+**Nota:** Actualmente estas funciones están disponibles pero no se usan en el flujo principal de dibujo. El flujo activo usa `getRoute(firstPoint, lastPoint)` tomando solo inicio y fin del trazo.
+
+---
+
+## 11. Debug
 
 > Solo para desarrollo. No incluir en producción.
 
@@ -1306,7 +1578,7 @@ Test de cualquier endpoint del backend. Imprime status y response en consola.
 
 ---
 
-## 11. Constantes
+## 12. Constantes
 
 ### `src/constants/colors.ts` — `COLORS`
 
@@ -1323,7 +1595,7 @@ Test de cualquier endpoint del backend. Imprime status y response en consola.
 
 ---
 
-## 12. Dependencias Clave
+## 13. Dependencias Clave
 
 | Paquete | Versión | Uso |
 |---------|---------|-----|
@@ -1343,7 +1615,7 @@ Test de cualquier endpoint del backend. Imprime status y response en consola.
 
 ---
 
-## 13. Variables de Entorno
+## 14. Variables de Entorno
 
 Archivo local: `.env` (ignorado por git, **nunca commitear**)
 Plantilla: `.env.example`
@@ -1359,30 +1631,142 @@ Plantilla: `.env.example`
 
 ---
 
-## 14. Flujos Principales
+## 15. Flujos Principales
 
-### 🎨 Gestos de Panel Deslizable (Planificador)
-**Implementado en:** `MapScreen.tsx` usando `PanResponder` de React Native
+### 🎨 Gestos de Panel Deslizable (Planificador) — ACTUALIZADO
+**Implementado en:** `MapScreen.tsx` usando `PanResponder` de React Native + `Animated.View`
 
 ```
-Panel expandido (muestra inputs)
+Panel expandido (muestra inputs + ScrollView)
   ├─ Deslizar 50px+ hacia ABAJO → Ocultar (300ms animation)
-  ├─ Velocidad > 0.3 hacia abajo → Ocultar instantáneo
+  ├─ Deslizar con velocidad > 0.3 hacia abajo → Ocultar instantáneo (snap)
   ├─ Tocar botón "−" → Ocultar (300ms)
-  └─ Tocar botón "⌃" cuando está oculto → Mostrar (700ms)
+  ├─ Presionar "Calcular Ruta 🚴" → Ocultar automáticamente (250ms) ✨ NUEVO
+  ├─ Activar Pin Drop Mode → Ocultar automáticamente (250ms) ✨ NUEVO
+  └─ Tocar botón "⌃" cuando está compacto → Mostrar (400ms)
 
-Panel oculto (vista compacta con dirección resumida)
-  ├─ Deslizar 50px+ hacia ARRIBA → Mostrar (700ms animation)
-  ├─ Velocidad > 0.3 hacia arriba → Mostrar instantáneo
-  ├─ Tocar botón "⌃" → Mostrar (700ms)
-  └─ Tocar lápiz "✎" → Mostrar (700ms)
+Panel compacto (80px - muestra label resumido + botones compactos)
+  ├─ Deslizar 50px+ hacia ARRIBA → Mostrar (400ms)
+  ├─ Deslizar con velocidad > 0.3 hacia arriba → Mostrar instantáneo (snap)
+  ├─ Tocar botón "⌃" → Mostrar (400ms)
+  ├─ Tocar botón "✎" (editar) → Mostrar (400ms)
+  └─ Presionar botón "🚴" (calcular compacto) → Colapsa si necesario + calcula ✨ NUEVO
 ```
 
 **Detalles técnicos:**
-- Velocidad de animación: 300ms ocultar (rápido), 700ms mostrar (lento, efecto "suave")
+- Velocidad de animación:
+  - 300ms para ocultar (rápido - snap)
+  - 400ms para mostrar (un poco más lento - suave)
+  - 250ms para auto-colapso al calcular ruta o al activar pin drop
+  - 350ms para reapertura tras pin drop (si falta un punto)
 - Refs congelados: `isPanelExpandedRef`, `isGestureEnabledRef` mantienen valores actuales en el `PanResponder`
-- Botón `⊙` se anima con `panelDragY` para subir cuando el panel baja
+- Botón `⊙` (centrar) se anima con `panelDragY` para subir cuando el panel baja
 - Brújula nativa sube 100px con `compassViewMargins={{ x: 5, y: 100 }}`
+- `panelHiddenY` = `panelHeight - 80` (la parte que se oculta, dejando 80px visibles)
+- **Bugfix `panelDragY`:** `useEffect` de sincronización siempre corrige `panelDragY` sin condición `> 0`, ya que cuando el panel mide exactamente 80px `panelHiddenY = 0` y sin el fix el panel compacto quedaba fuera de pantalla
+
+---
+
+### 📍 Card Flotante de Detalles de Ruta (NUEVO ✨)
+**Implementado en:** `MapScreen.tsx` dentro de JSX de renderizado
+
+Muestra información de la ruta calculada sin bloquear la vista del mapa.
+
+```
+Condiciones de visibilidad:
+  - route !== null (ruta calculada)
+  AND
+  - plannerActive === true (en modo planificador)
+  AND
+  - !isPanelExpanded (panel colapsado)
+
+Contenido de la card:
+  ┌─────────────────────────────┐
+  │ 📍 Tu Ruta                  │  ← Header azul claro, border-bottom
+  ├─────────────────────────────┤
+  │ Distancia:  15.2 km         │  ← Flex row, space-between
+  │ Duración:   2h 14m          │  ← Formato formatDuration()
+  │ Dificultad: 🔴 dificil      │  ← Coloreado: verde/naranja/rojo
+  └─────────────────────────────┘
+
+Estilos:
+  - Posición: absolute top (insets.top + 16 px desde arriba)
+  - Fondo: blanco (#ffffff)
+  - Border: 1px sólido gris oscuro
+  - Sombra: elevation 4 (Android), shadow (iOS)
+  - Padding: 16px interior
+  - Border-radius: 8px
+  - Font: Semibold 14px para labels/valores
+
+Dificultad coloreada:
+  - 'plano'     → Verde (#10b981)
+  - 'moderado'  → Naranja (#f59e0b)
+  - 'dificil'   → Rojo (#ef4444)
+```
+
+---
+
+### 🔄 Flujo de Cálculo de Ruta (COMPLETO - ACTUALIZADO)
+```
+Usuario en MapScreen modo planificador (origen + destino seleccionados)
+  │
+  ├─ VE PANEL EXPANDIDO
+  │   └─ Presiona "Calcular Ruta 🚴" (en ScrollView)
+  │       ↓ (O DESLIZA ARRIBA DESDE VISTA COMPACTA)
+  │
+  └─ VE PANEL COMPACTO
+      └─ Presiona botón "🚴" compacto
+          ↓
+        FLUJO CÁLCULO (igual para ambos botones):
+          │
+          ├─ Panel se colapsa automáticamente (250ms)
+          │   └─ Animated.timing: toValue = panelHeight - 80
+          │   └─ Start callback: setIsPanelExpanded(false)
+          │
+          ├─ Validación:
+          │   ├─ origen && destination existen? ✅
+          │   ├─ Distancia > 100 metros? ✅
+          │   └─ Si falla → error, retorna null
+          │
+          ├─ Hook useRouteCalculation llama calculateRoute()
+          │   ├─ clearRoute() → limpia ruta anterior del store (línea punteada visible mientras se calcula)
+          │   └─ setIsCalculatingRoute(true) → spinner en botón
+          │
+          ├─ API getRoute(origin, destination, { profile: 'bike' })
+          │   └─ petición a OSRM: https://router.project-osrm.org/...
+          │
+          ├─ OSRM responde:
+          │   ├─ Éxito: geometry (GeoJSON), distance, duration (en segundos)
+          │   │   └─ Convierte: duration_minutes = (distance_km / 15 km/h) * 60
+          │   │   └─ Calcula dificultad según elevación
+          │   ├─ Error NoRoute: "No hay ruta disponible entre estos puntos"
+          │   ├─ Error InvalidInput: "Coordenadas inválidas"
+          │   └─ Error ServerError: "Servidor OSRM no disponible"
+          │
+          ├─ Store actualiza:
+          │   ├─ setRoute(calculatedRoute)
+          │   ├─ setIsCalculatingRoute(false)
+          │   └─ Si error: setRouteError(message)
+          │
+          └─ MapScreen re-renderiza automáticamente:
+              ├─ PlannerMap detecta route !== null
+              │   └─ Renderiza LineLayer sólida azul (geometría real OSRM)
+              │
+              ├─ Route Details Card aparece (si route && !isPanelExpanded)
+              │   └─ Muestra: distancia (km), duración (Xh Ym), dificultad
+              │
+              ├─ Usuario puede:
+              │   ├─ Deslizar arriba → panel expandido nuevamente
+              │   ├─ Tocar "Calcular Ruta" otra vez → recalcula nueva ruta
+              │   ├─ Deslizar mapa → ve la ruta completa
+              │   └─ Tocar "✕ Cancelar" → exitPlannerMode (limpia todo)
+              │
+              └─ Logs console (para debugging):
+                  ├─ [MapScreen] 🚴 INICIANDO CÁLCULO DE RUTA
+                  ├─ [MapScreen] Colapsando panel... panelHeight=...
+                  ├─ [MapScreen] ✅ Ruta calculada: 33.4 km | 2h 14m | dificil
+                  └─ [MapScreen] Panel colapsado
+```
 
 ---
 
@@ -1397,30 +1781,41 @@ App abre
                     └─ LoginScreen → signIn() → Supabase → OK → onAuthStateChange → MainTabs
 ```
 
-### 🗺️ Flujo de Planificación de Ruta (Refactor ✅)
+### 🗺️ Flujo de Planificación de Ruta (Actualizado ✅)
 ```
 MapScreen → toca "Planificar ruta"
-  └─ PlannerScreen (obtiene estado del store, NO pasa props)
-        ├─ Toca "Punto de Salida"
-        │     └─ LocationSearchScreen (fullscreen, SIN PROPS)
+  └─ Panel planificador (obtiene estado del store, NO pasa props)
+        ├─ Toca "Punto de Salida" (LocationInput)
+        │     └─ setSelectingMode('origin') → LocationSearchScreen (fullscreen, SIN PROPS)
         │           ├─ Obtiene selectingMode, origin, destination, userLocation del store
         │           ├─ useLocationSearch() → búsqueda con debounce (300ms)
         │           │     └─ searchPlaces() → Nominatim/OpenStreetMap
         │           ├─ useLocationValidation() → valida duplicados
-        │           ├─ Selecciona resultado → setOrigin(location) al store
-        │           └─ "Usar mi ubicación" → useLocationManager() → GPS + reverseGeocode
-        ├─ Toca "Punto de Llegada"
-        │     └─ igual que arriba → setDestination(location)
-        │           └─ Validación automática: no puede ser igual al origen (50m tolerancia)
+        │           ├─ Selecciona resultado → setOrigin(location) → cierra pantalla
+        │           ├─ "Usar mi ubicación" → userLocation del store → setOrigin → cierra
+        │           └─ ⭐ "Marcar punto de salida en el mapa"
+        │                 └─ setPinDropMode('origin') + cierra LocationSearchScreen
+        │                       └─ MapScreen muestra banner "Toca el mapa para marcar..."
+        │                             └─ Panel colapsa automáticamente (250ms) al activar pinDropMode
+        │                                   └─ Usuario toca mapa → reverseGeocode → setOrigin
+        │                                         ├─ Falta destino → panel reabre (350ms)
+        │                                         └─ Ambos listos → panel compacto queda visible
+        ├─ Toca "Punto de Llegada" → flujo idéntico con setSelectingMode('destination')
+        │     └─ ⭐ "Marcar punto de llegada en el mapa" → setPinDropMode('destination')
         ├─ Error si intenta duplicada → mensaje de error en alert
         ├─ "⇅ Intercambiar" → swapLocations()
-        └─ "Calcular Ruta 🚴" → [PENDIENTE: API de ruteo]
+        └─ "Calcular Ruta 🚴" → useRouteCalculation() → OSRM → route + auto-collapse
+            ├─ Panel colapsa automáticamente (250ms)
+            ├─ Se calcula ruta real
+            ├─ Route Details Card aparece
+            └─ Mapa muestra línea sólida azul con geometría real
 
-✨ CAMBIOS DEL REFACTOR:
-- LocationSearchScreen NO recibe props (eliminó prop drilling)
-- Estado sincronizado en usePlannerStore (userLocation compartido)
-- Custom hooks encapsulan lógica (useLocationSearch, useLocationManager, useLocationValidation)
-- Validación centralizada y reutilizable
+NOTAS:
+- LocationSearchScreen NO recibe props
+- Solo muestra el botón de pin drop correspondiente al modo activo (origin o destination)
+- Estado sincronizado en usePlannerStore (userLocation, pinDropMode compartidos)
+- Duración calculada según velocidad promedio bicicleta (15 km/h por defecto)
+- Formato duración: "Xh Ym" (2h 14m), "45m", "1h"
 ```
 
 ### 📡 Flujo de Sesión en Tiempo Real
@@ -1433,30 +1828,82 @@ Cualquier cambio de sesión (login, logout, token refresh)
 
 ---
 
-## 📋 Resumen del Refactor Arquitectónico (✅ Completado)
+## 📋 Resumen del Refactor Arquitectónico y Últimas Actualizaciones
 
-**Objetivo:** Mejorar arquitectura sin modificar funcionalidad.
+**Objetivo:** Mejorar arquitectura sin modificar funcionalidad + agregar ruteo real con OSRM.
 
-**Cambios Realizados:**
+**Cambios Realizados (Completados ✅):**
 
-| Categoría | Detalles |
-|-----------|----------|
-| **Tipos Centralizados** | ✅ `src/types/map.ts`, `src/types/search.ts` (eliminó duplicación de `CameraCoords`) |
-| **Stores Expandidos** | ✅ `usePlannerStore` ahora maneja: origin, destination, userLocation, searchState |
-| **Nuevas Stores** | ✅ `useMapStore` para estado del mapa (camera, panel, markers) |
-| **Custom Hooks** | ✅ `useLocationManager` (GPS + reverse geocoding) |
-| | ✅ `useLocationSearch` (búsqueda con debounce 300ms) |
-| | ✅ `useLocationValidation` (validación de ubicaciones) |
-| **Prop Drilling** | ✅ Eliminado: LocationSearchScreen ahora obtiene estado del store (0 props) |
-| **Componentes Refactor** | ✅ MapScreen, PlannerScreen, LocationSearchScreen, RutaCoMap, PlannerMap |
-| **Compilación** | ✅ 0 errores TypeScript en todo el proyecto |
-| **Funcionalidad** | ✅ 100% preservada (sin cambios UI, mismo comportamiento) |
+| Categoría | Detalles | Estado |
+|-----------|----------|--------|
+| **Tipos Centralizados** | ✅ `src/types/map.ts`, `src/types/search.ts`, `src/types/route.ts` (eliminó duplicación de `CameraCoords`) | ✅ Completo |
+| **Stores Expandidos** | ✅ `usePlannerStore` maneja: origin, destination, userLocation, searchState, route, pinDropMode, isDrawingMode, drawnPoints | ✅ Completo |
+| **Nuevas Stores** | ✅ `useMapStore` para estado del mapa (camera, panel, markers) | ✅ Completo |
+| **Custom Hooks** | ✅ `useLocationManager` (GPS + reverse geocoding) | ✅ Completo |
+| | ✅ `useLocationSearch` (búsqueda con debounce 300ms) | ✅ Completo |
+| | ✅ `useLocationValidation` (validación de ubicaciones) | ✅ Completo |
+| | ✅ `useRouteCalculation` (cálculo de rutas con OSRM + clearRoute en inicio) | ✅ Completo |
+| **Prop Drilling** | ✅ Eliminado: LocationSearchScreen obtiene estado del store (0 props) | ✅ Completo |
+| | ✅ Reducido: PinDropBanner y RouteDetailsCard leen del store, sin props innecesarias | ✅ Completo |
+| **Componentes Refactor** | ✅ MapScreen, PlannerScreen, LocationSearchScreen, RutaCoMap, PlannerMap | ✅ Completo |
+| | ✅ **NUEVO:** PinDropBanner (extraído de MapScreen) | ✅ Completo |
+| | ✅ **NUEVO:** RouteDetailsCard (extraído de MapScreen) | ✅ Completo |
+| | ✅ **NUEVO:** DrawingModeBanner (modo dibujo libre) | ✅ Completo |
+| **Modo Dibujo Libre** | ✅ Overlay transparente con Responder API — 1 dedo dibuja, 2 dedos pan/zoom | ✅ Completo |
+| | ✅ Bug fix: primer punto ya no se registra al pulsar botón lápiz | ✅ Completo |
+| | ✅ Trazo continuo: puntos cada 15px de movimiento vía `getCoordinateFromView` | ✅ Completo |
+| | ✅ Panel colapsa automáticamente al activar modo dibujo (250ms) | ✅ Completo |
+| | ✅ **Undo stack por trazo:** `drawnStrokes: LocationPoint[][]` — cada gesto del dedo es un elemento independiente en la pila | ✅ Completo |
+| | ✅ `beginNewStroke()` al iniciar cada gesto → `undoLastStroke()` borra solo el último trazo (ctrl+z) | ✅ Completo |
+| | ✅ Visualización: una capa de línea por trazo en el mapa; al deshacer desaparece la capa correspondiente | ✅ Completo |
+| | ✅ `DrawingModeBanner` rediseñado: 3 botones circulares a la derecha (✓ / ↩ / ✕), sin modal que obstruya la vista | ✅ Completo |
+| | ✅ Waypoints reducidos a 5 (RDP) + `continue_straight: true` → ruta sigue el trazo sin zigzags | ✅ Completo |
+| | ✅ Cámara centra bounding box de la ruta calculada tras presionar ✓ (`flyTo` automático) | ✅ Completo |
+| | ✅ Modos mutuamente excluyentes: activar `selectingMode`, `pinDropMode` o `isDrawingMode` apaga los otros dos | ✅ Completo |
+| | ✅ Botón lápiz ✏️ oculto cuando `selectingMode !== null` (búsqueda de dirección abierta) | ✅ Completo |
+| | ✅ Al activar modo dibujo: `route` se limpia en el store → `RouteDetailsCard` no muestra datos rancios | ✅ Completo |
+| **Ruteo Real (OSRM)** | ✅ Integración OSRM bike profile, cálculo de velocidad (default 15 km/h) | ✅ Completo |
+| | ✅ `clearRoute()` al inicio del cálculo → evita ruta anterior visible | ✅ Completo |
+| **Utilidades** | ✅ `src/utils/formatDuration.ts` - formato "Xh Ym" para duraciones | ✅ Completo |
+| **Panel Deslizable** | ✅ Auto-colapso al presionar "Calcular Ruta 🚴" (ambos botones) | ✅ Completo |
+| **Route Details Card** | ✅ Card flotante mostrando: distancia (km), duración (Xh Ym) | ✅ Completo |
+| | ✅ No aparece cuando `pinDropMode` está activo — evita solapamiento | ✅ Completo |
+| | ✅ No aparece cuando `isDrawingMode` está activo — evita solapamiento con botones de dibujo | ✅ Completo |
+| | ✅ `route` se borra del store al activar modo dibujo — sin datos rancios de búsquedas anteriores | ✅ Completo |
+| **Pin Drop Mode** | ✅ `pinDropMode` en store + banner overlay en mapa + `handleMapPinDrop` + botones contextuales en `LocationSearchScreen` | ✅ Completo |
+| | ✅ Banner ahora es componente independiente (`PinDropBanner`) | ✅ Completo |
+| **Compilación** | ✅ 0 errores TypeScript en todo el proyecto | ✅ Completo |
+| **Funcionalidad** | ✅ 100% preservada (sin cambios UI no deseados, mismo comportamiento base) | ✅ Completo |
+
+**Características Nuevas (ÚLTIMAS ACTUALIZACIONES):**
+- 🆕 **Componente PinDropBanner:** Banner flotante extraído de MapScreen, auto-oculto cuando `pinDropMode` es null
+- 🆕 **Componente RouteDetailsCard:** Card de distancia/tiempo extraída de MapScreen, reutilizable
+- 🆕 **Bug fix solapamiento:** `RouteDetailsCard` verifica `!!pinDropMode` y retorna null para evitar que ambos modales se superpongan
+- 🆕 **Mejor arquitectura:** Componentes leen estado global sin prop drilling, mejora mantenibilidad
+- 🆕 **Panel collapse automático:** Al presionar "Calcular Ruta 🚴", el panel se anima hacia abajo en 250ms
+- 🆕 **Route details card:** Muestra distancia, duración (formato "Xh Ym"), dificultad coloreada (verde/naranja/rojo)
+- 🆕 **Vista compacta:** Panel reducido a 80px con label resumido y botones compactos
+- 🆕 **Gestos mejorados:** Deslizar arriba/abajo para expandir/colapsar, velocidad threshold para snap instantáneo
+- 🆕 **Pin Drop Mode:** Usuario puede tocar el mapa directamente para marcar puntos. Flujo: botón en `LocationSearchScreen` → `setPinDropMode` → panel colapsa (250ms) → banner instrucción en mapa → toque → `reverseGeocode` → guarda en store → si falta punto el panel reabre (350ms), si ambos listos el panel compacto queda visible
+- 🆕 **Botón pin contextual:** En `LocationSearchScreen` solo aparece el botón de pin del modo activo (salida o llegada, no ambos)
+- 🆕 **Bugfix panel compacto:** `panelDragY` siempre se corrige al colapsar, incluso cuando `panelHiddenY = 0` (panel de exactamente 80px)
+- 🆕 **clearRoute() en cálculo:** Al iniciar nuevo cálculo de ruta, se limpia la anterior automáticamente → evita mostrar ruta vieja mientras espera OSRM
+- 🆕 **Modo Dibujo Libre (trazo continuo):** Botón ✏️ activa overlay transparente. El dedo dibuja la ruta directamente en el mapa como un marcador. 1 dedo = dibuja, 2 dedos = pan/zoom del mapa. El overlay usa el sistema de Responders de React Native sobre el mapa.
+- 🆕 **Bug fix primer punto al activar lápiz:** `isDrawingMode` eliminado del `onPress` de Mapbox. El overlay captura los gestos, no el sistema de tap de Mapbox.
+- 🆕 **Throttle de dibujo:** Solo se registra un nuevo punto cuando el dedo se mueve ≥15px → trazo fluido sin exceso de puntos.
+- 🆕 **Botones de dibujo rediseñados:** El banner horizontal que obstruia el mapa fue reemplazado por tres botones circulares (44px) flotantes en el lado derecho: `✓` (calcular, morado), `↩` (deshacer, borde morado), `✕` (limpiar, borde rojo). Sin texto, solo símbolos. `pointerEvents="box-none"` para no bloquear el trazo.
+- 🆕 **Ruta limpia al activar modo dibujo:** `setIsDrawingMode(true)` ahora también resetea `route: null` y `routeError: null` en el store, evitando que `RouteDetailsCard` muestre datos de búsquedas anteriores.
+- 🆕 **`RouteDetailsCard` oculta en modo dibujo:** condición `|| isDrawingMode` añadida al bail-out del componente.
+- 🆕 **Ruta sigue el trazo sin zigzags:** `getRouteWithWaypoints` usa `continue_straight: 'true'` para que OSRM prefiera seguir recto en cada waypoint intermedio. Waypoints reducidos de 12 a **5** (RDP) para evitar maniobras forzadas entre puntos cercanos.
+- 🆕 **Cámara centra la ruta al calcular:** tras recibir la ruta de OSRM en modo dibujo, calcula el bounding box de todas las coordenadas de la geometría y hace `flyTo` con zoom ajustado (×4 de margen) para que toda la ruta sea visible.
 
 **Beneficios:**
 - Mayor reutilizabilidad de lógica a través de custom hooks
 - Estado centralizado y sincronizado entre pantallas
 - Componentes más simples y predecibles
-- Facilita testing y mantenimiento futuro
+- Ruteo realista: OSRM usa perfil ciclismo (bike)
+- Duración calculada según velocidad promedio bicicleta (15 km/h por defecto)
+- UX mejorada: panel colapsa automáticamente al calcular para ver la ruta en el mapa
 - Escalabilidad mejorada para nuevas funciones
 
 ---

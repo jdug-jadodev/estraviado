@@ -8,6 +8,7 @@ import { CalculatedRoute } from '@/types/route'
 import { LocationPoint } from '@/types/planner'
 import { getRoute } from '@/api/routing'
 import { usePlannerStore } from '@/store/plannerStore'
+import { formatDuration } from '@/utils/formatDuration'
 
 interface UseRouteCalculationReturn {
   /** Calcula la ruta entre origen y destino */
@@ -47,13 +48,11 @@ export function useRouteCalculation(): UseRouteCalculationReturn {
    * Calcula la ruta entre los puntos actual del store
    */
   const calculateRoute = useCallback(async (): Promise<CalculatedRoute | null> => {
-    console.log('[useRouteCalculation] Iniciando cálculo de ruta', { origin, destination })
-    
+
     // Validar que haya ambos puntos
     if (!origin || !destination) {
       const error = 'Debes seleccionar un punto de salida y destino'
       setRouteError(error)
-      console.error('[useRouteCalculation]', error)
       return null
     }
 
@@ -68,11 +67,12 @@ export function useRouteCalculation(): UseRouteCalculationReturn {
     if (distanceKm < 0.1) {
       const error = 'El punto de salida y destino deben estar separados al menos 100 metros'
       setRouteError(error)
-      console.error('[useRouteCalculation]', error)
+      console.warn('[useRouteCalculation] ⚠️', error, `(distancia: ${distanceKm.toFixed(2)} km)`)
       return null
     }
 
     try {
+      clearRouteFromStore()
       setIsCalculatingRoute(true)
       setRouteError(null)
 
@@ -82,19 +82,14 @@ export function useRouteCalculation(): UseRouteCalculationReturn {
         overview: 'full',
         geometries: 'geojson',
       })
-
-      console.log('[useRouteCalculation] Ruta calculada, guardando en store:', calculatedRoute)
       
       // Guardar en store
       setRoute(calculatedRoute)
       setIsCalculatingRoute(false)
 
-      console.log('[useRouteCalculation] Ruta guardada en store')
-
       return calculatedRoute
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Error desconocido'
-      console.error('[useRouteCalculation] Error:', errorMsg)
       setRouteError(errorMsg)
       setIsCalculatingRoute(false)
       return null
@@ -137,3 +132,4 @@ function calculateDistance(
 function toRad(degrees: number): number {
   return degrees * (Math.PI / 180)
 }
+ 

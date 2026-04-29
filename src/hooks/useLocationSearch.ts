@@ -41,7 +41,7 @@ export function useLocationSearch({
     clearSearch,
   } = usePlannerStore()
 
-  const debounceTimerRef = useRef<NodeJS.Timeout | undefined>(undefined)
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   /**
    * Realiza la búsqueda de lugares

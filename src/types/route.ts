@@ -61,6 +61,9 @@ export interface RouteCalculationOptions {
   
   /** Si se incluye información de elevación */
   includeElevation?: boolean
+  
+  /** Velocidad promedio de bicicleta en km/h para calcular tiempo realista (default: 20) */
+  bikeSpeed?: number
 }
 
 /**

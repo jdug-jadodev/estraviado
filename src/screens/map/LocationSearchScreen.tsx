@@ -30,6 +30,7 @@ export function LocationSearchScreen() {
     destination,
     userLocation,
     setSelectingMode,
+    setPinDropMode,
   } = usePlannerStore()
 
   // Usamos custom hook para búsqueda
@@ -90,6 +91,18 @@ export function LocationSearchScreen() {
       }
     }
   }, [userLocation, selectingMode, setSelectingMode, clearSearch])
+
+  const handleMarkOriginOnMap = useCallback(() => {
+    clearSearch()
+    setSelectingMode(null)
+    setPinDropMode('origin')
+  }, [clearSearch, setSelectingMode, setPinDropMode])
+
+  const handleMarkDestinationOnMap = useCallback(() => {
+    clearSearch()
+    setSelectingMode(null)
+    setPinDropMode('destination')
+  }, [clearSearch, setSelectingMode, setPinDropMode])
 
   const renderResultItem = ({ item }: { item: LocationPoint }) => (
     <TouchableOpacity
@@ -187,6 +200,39 @@ export function LocationSearchScreen() {
                       {userLocation.address}
                     </Text>
                   )}
+                </View>
+              </TouchableOpacity>
+            )}
+
+            {/* Botón de marcar punto en el mapa — solo el del modo activo */}
+            {selectingMode === 'origin' && (
+              <TouchableOpacity
+                style={[styles.pinButton, styles.pinButtonOrigin]}
+                onPress={handleMarkOriginOnMap}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.pinButtonIcon}>📍</Text>
+                <View style={styles.pinButtonContent}>
+                  <Text style={styles.pinButtonTitle}>Marcar punto de salida en el mapa</Text>
+                  <Text style={styles.pinButtonSubtitle}>
+                    {origin ? `✓ ${origin.address}` : 'Toca el mapa para marcar'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
+            {selectingMode === 'destination' && (
+              <TouchableOpacity
+                style={[styles.pinButton, styles.pinButtonDestination]}
+                onPress={handleMarkDestinationOnMap}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.pinButtonIcon}>🎯</Text>
+                <View style={styles.pinButtonContent}>
+                  <Text style={styles.pinButtonTitle}>Marcar punto de llegada en el mapa</Text>
+                  <Text style={styles.pinButtonSubtitle}>
+                    {destination ? `✓ ${destination.address}` : 'Toca el mapa para marcar'}
+                  </Text>
                 </View>
               </TouchableOpacity>
             )}
@@ -389,5 +435,40 @@ const styles = StyleSheet.create({
   noResultsSubtitle: {
     color: COLORS.textSecondary,
     fontSize: 13,
+  },
+  pinButton: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginTop: 12,
+    borderWidth: 1.5,
+    gap: 12,
+  },
+  pinButtonOrigin: {
+    backgroundColor: `#10b98115`,
+    borderColor: '#10b981',
+  },
+  pinButtonDestination: {
+    backgroundColor: `#ef444415`,
+    borderColor: '#ef4444',
+  },
+  pinButtonIcon: {
+    fontSize: 24,
+  },
+  pinButtonContent: {
+    flex: 1,
+  },
+  pinButtonTitle: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  pinButtonSubtitle: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
   },
 })
