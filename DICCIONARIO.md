@@ -259,6 +259,93 @@ export { isSameLocation } from './isSameLocation'
 
 ---
 
+### `src/api/routing/` — Cálculo de Rutas (NUEVO ✨)
+
+#### `getRoute.ts` — Función Principal
+Calcula rutas reales entre dos puntos usando **OSRM (Open Source Routing Machine)**.
+
+**Firma:**
+```ts
+export async function getRoute(
+  origin: LocationPoint,
+  destination: LocationPoint,
+  options?: RouteCalculationOptions
+): Promise<CalculatedRoute>
+```
+
+**Qué retorna:**
+```ts
+{
+  id?: string
+  geometry: GeoJSONLineString     // Coordenadas reales siguiendo calles
+  distance_km: number             // Distancia real (no línea recta)
+  duration_minutes: number        // Tiempo estimado pedalando
+  steps?: RouteStep[]             // Instrucciones paso a paso (futuro)
+  elevation_gain_m?: number       // Ganancia elevación (futuro)
+  difficulty?: 'plano' | 'moderado' | 'dificil'
+  calculatedAt: number
+}
+```
+
+**Opciones por defecto:**
+```ts
+{
+  profile: 'bike',                // Perfil: ciclismo optimizado
+  overview: 'full',               // Geometría: detallada completa
+  geometries: 'geojson'           // Formato: GeoJSON (no polyline)
+}
+```
+
+**Validaciones:**
+- ✅ Rechaza coordenadas NaN o inválidas
+- ✅ Rechaza puntos separados menos de 1 metro
+- ✅ Valida rango: lat [-90, 90], lng [-180, 180]
+
+**Manejo de errores OSRM:**
+| Código | Significado | Ejemplo |
+|--------|-------------|---------|
+| `NoRoute` | No hay ruta posible | Isla sin puente |
+| `InvalidInput` | Coordenadas fuera de rango | lat > 90 |
+| `ServerError` | OSRM no responde | Servidor caído |
+
+**Logs de debugging:**
+```
+[OSRM] ✅ Ruta calculada: 15.2 km en 45 min (moderado)
+[OSRM] ❌ Error: NoRoute - no hay ruta disponible
+[OSRM] ⚠️ Invalid coordinates: NaN detected in origin
+```
+
+**Ejemplo:**
+```ts
+const route = await getRoute(
+  { latitude: 4.7110, longitude: -74.0721, address: 'Centro Bogotá' },
+  { latitude: 4.6516, longitude: -74.0976, address: 'Usaquén' }
+)
+
+console.log(`${route.distance_km} km | ${route.duration_minutes} min`)
+// Output: "15.2 km | 45 min"
+```
+
+**API OSRM:**
+- Base: `https://router.project-osrm.org/route/v1`
+- Ruta: `/bike/{lng1},{lat1};{lng2},{lat2}`
+- Query: `?overview=full&geometries=geojson`
+- **✨ Totalmente gratuito, sin API key**
+
+**Usada en:** `useRouteCalculation()` hook
+
+---
+
+#### `index.ts` — Barrel Export
+```ts
+export { getRoute, calculateGreatCircleDistance } from './getRoute'
+export type { CalculatedRoute, RouteStep, RouteCalculationOptions } from '@/types/route'
+```
+
+Centraliza exports. Permite: `import { getRoute } from '@/api/routing'`
+
+---
+
 ### `src/api/geocoding/` — Geocodificación — Funciones
 
 > Cada función vive en su propio archivo. Importar siempre desde `@/api/geocoding`.
@@ -339,7 +426,7 @@ interface AuthStore {
 | | |
 |---|---|
 | **Hook** | `usePlannerStore()` |
-| **Estado** | `origin`, `destination`, `selectingMode`, `error`, `userLocation`, `locationError`, `searchState` |
+| **Estado** | `origin`, `destination`, `selectingMode`, `error`, `userLocation`, `locationError`, `searchState`, `route`, `isCalculatingRoute`, `routeError` |
 
 **Estado de ubicaciones:**
 
@@ -354,14 +441,14 @@ interface AuthStore {
 | `getCoordinates()` | `RouteCoordinates` | Devuelve `{origin, destination}`. |
 | `isValid()` | `boolean` | `true` si origen Y destino existen. |
 
-**Estado del usuario (NUEVO):**
+**Estado del usuario:**
 
 | Acción | Retorna | Qué hace |
 |--------|---------|----------|
-| `setUserLocation(location)` | `void` | Guarda ubicación GPS actual del usuario. Sincroniza con MapScreen y PlannerScreen. |
+| `setUserLocation(location)` | `void` | Guarda ubicación GPS actual del usuario. Sincroniza con MapScreen y LocationSearchScreen. |
 | `setLocationError(error)` | `void` | Guarda errores de permisos/GPS. |
 
-**Estado de búsqueda (NUEVO):**
+**Estado de búsqueda:**
 
 | Acción | Retorna | Qué hace |
 |--------|---------|----------|
@@ -371,7 +458,16 @@ interface AuthStore {
 | `setSearchError(error)` | `void` | Guarda errores de búsqueda. |
 | `clearSearch()` | `void` | Resetea búsqueda. |
 
-**Usada en:** `LocationSearchScreen.tsx`, `MapScreen.tsx`, `PlannerScreen.tsx`, `useLocationSearch.ts`
+**Estado de ruta (NUEVO ✨):**
+
+| Acción | Retorna | Qué hace |
+|--------|---------|----------|
+| `setRoute(route)` | `void` | Guarda la ruta calculada. Sincroniza automáticamente con MapScreen para renderizar en el mapa. |
+| `setIsCalculatingRoute(isCalculating)` | `void` | Indica si está calculando (muestra spinner). |
+| `setRouteError(error)` | `void` | Guarda errores del cálculo de ruta. |
+| `clearRoute()` | `void` | Resetea la ruta calculada. |
+
+**Usada en:** `LocationSearchScreen.tsx`, `MapScreen.tsx`, `useLocationSearch.ts`, `useRouteCalculation.ts`
 
 ---
 
@@ -598,6 +694,51 @@ Retornado por `usePlannerStore().getCoordinates()`.
 
 ---
 
+### Route Types (NUEVO ✨)
+`src/types/route.ts`
+
+#### `CalculatedRoute`
+```ts
+{
+  id?: string
+  geometry: GeoJSONLineString           // Coordenadas reales de la ruta
+  distance_km: number                   // Distancia en kilómetros
+  duration_minutes: number              // Tiempo estimado en minutos
+  steps?: RouteStep[]                   // Instrucciones (para futuro)
+  elevation_gain_m?: number             // Elevación acumulada (para futuro)
+  difficulty?: 'plano' | 'moderado' | 'dificil'
+  calculatedAt?: number                 // Timestamp de cálculo
+}
+```
+Retornada por `getRoute()` y almacenada en `usePlannerStore().route`.
+
+#### `RouteStep`
+```ts
+{
+  instruction: string
+  distance_m: number
+  duration_seconds: number
+  coordinates: [number, number][]
+  maneuver?: 'turn-left' | 'turn-right' | 'straight' | 'u-turn'
+}
+```
+Paso individual dentro de una ruta (para instrucciones giro a giro en el futuro).
+
+#### `RouteCalculationOptions`
+```ts
+{
+  profile?: 'bike' | 'foot'             // Perfil de ruteo (default: 'bike')
+  overview?: 'full' | 'simplified'      // Nivel de detalle (default: 'full')
+  geometries?: 'geojson'                // Formato de geometría (default: 'geojson')
+  includeElevation?: boolean            // Incluir datos de elevación
+}
+```
+Opciones de configuración para `getRoute()`.
+
+---
+
+---
+
 ## 6. Navegación
 
 ### `src/navigation/RootNavigator.tsx` — `RootNavigator`
@@ -688,40 +829,70 @@ Formulario de registro con campos: nombre completo, username (opcional), email, 
 ### Map
 
 #### `src/screens/map/MapScreen.tsx` — `MapScreen` (Actualizado ✅)
-Pantalla principal del mapa. Muestra Mapbox con el mapa Outdoors y la ubicación del usuario. Incluye panel planificador deslizable con gestos táctiles.
+Pantalla principal del mapa. Muestra Mapbox con el mapa Outdoors, ubicación del usuario, y panel planificador deslizable. **Integrado con ruteo real (OSRM)**.
 
-**CAMBIOS del refactor:**
-- ✅ Ahora obtiene `userLocation` de `usePlannerStore()` (antes estado local)
-- ✅ Usa `setUserLocation` del store (sincroniza con PlannerScreen y LocationSearchScreen)
-- ✅ Llama `LocationSearchScreen` sin props
-- ✅ Usa tipos centralizados (`CameraCoords` de `@/types/map.ts`)
+**CAMBIOS RECIENTES:**
+- ✅ Integrado hook `useRouteCalculation()` para cálculo de rutas
+- ✅ Botones "Calcular Ruta 🚴" conectados a OSRM API
+- ✅ Renderiza línea **sólida** cuando ruta está calculada
+- ✅ Renderiza línea **punteada** como fallback provisional
+- ✅ Indicador de carga (spinner) durante cálculo
+- ✅ Muestra información: distancia, tiempo, dificultad
 
 | Elemento | Descripción |
 |----------|-------------|
 | `RutaCoMap` | Componente de mapa con cámara y puck de usuario |
 | Botón "+ Planificar ruta" | Abre modo planificador con panel deslizable inferior |
-| Panel deslizable | Muestra inputs de origen/destino. Se arrastra arriba/abajo. Estado compacto cuando se oculta |
+| Panel deslizable | Muestra inputs de origen/destino. Se arrastra arriba/abajo. |
+| Botón "Calcular Ruta 🚴" | Llama a `useRouteCalculation().calculateRoute()` → OSRM API → renderiza ruta real |
+| Spinner de carga | Visible durante petición a OSRM (mientras `isCalculating: true`) |
 | Botón circunflejo | Centra cámara en ruta. Sube con el panel para mantenerse visible |
-| Botón toggle | Muestra u oculta el panel expandido (duración 700ms) |
-| Banner de error | Muestra si los permisos fueron denegados |
+| Botón toggle | Muestra u oculta el panel expandido (duración 300-700ms) |
+| Banner de error | Muestra permisos denegados o errores de cálculo |
 
 **Estado local (reducido):**
 - `cameraCoords` — Posición y zoom de la cámara
 - `locationError` — Mensaje de error de permisos
 - `panelHeight` — Alto total del panel medido con `onLayout`
+- `plannerActive` — Si está en modo planificador
+- `isPanelExpanded` — Si panel está expandido
 
-**Estado global (del store):**
-- `userLocation` — Ubicación GPS actual (SINCRONIZADO)
-- `origin`, `destination`, `selectingMode` — Puntos de ruta
+**Estado global (del store via `useRouteCalculation`):**
+- `origin`, `destination` — Puntos de ruta
+- `route` — Ruta calculada (null hasta que se presiona botón)
+- `isCalculatingRoute` — Si está esperando respuesta de OSRM
+- `routeError` — Error del cálculo
+
+**Flujo de cálculo de ruta:**
+```
+Usuario presiona "Calcular Ruta 🚴"
+  ↓
+useRouteCalculation.calculateRoute() inicia
+  ↓
+setIsCalculatingRoute(true) → spinner visible
+  ↓
+getRoute(origin, destination) → petición a OSRM
+  ↓
+OSRM retorna geometría GeoJSON
+  ↓
+setRoute(calculatedRoute) → guardado en store
+  ↓
+setIsCalculatingRoute(false) → spinner desaparece
+  ↓
+MapScreen renderiza:
+  - LineLayer sólida (ruta real de OSRM)
+  - Información: "15.2 km | 45 min | moderado"
+```
 
 **Gestos (PanResponder):**
-- **Panel expandido:** deslizar hacia abajo → oculta (300ms)
-- **Panel oculto:** deslizar hacia arriba → muestra (700ms)
+- **Panel expandido:** deslizar 50px+ hacia abajo → oculta (300ms)
+- **Panel oculto:** deslizar 50px+ hacia arriba → muestra (700ms)
 - Los gestos solo funcionan si hay origen Y destino
 
-**Al montar:** Solicita permisos de ubicación y centra el mapa en la posición del usuario.
-
-**Al montar:** Solicita permisos de ubicación y centra el mapa en la posición del usuario.
+**Permisos al montar:**
+- Solicita `Location.ForegroundPermissions`
+- Centra mapa en ubicación del usuario
+- Obtiene ubicación de alta precisión en background
 
 ---
 
@@ -859,24 +1030,41 @@ Wrapper de `MapboxGL.MapView`. Componente base del mapa usado en toda la app.
 ---
 
 #### `src/components/map/PlannerMap.tsx` — `PlannerMap` (Actualizado ✅)
-Mapa interactivo del planificador. Extiende `RutaCoMap` con capas para origen, destino y línea de ruta provisional.
+Mapa interactivo del planificador. Renderiza origen, destino, y línea de ruta (provisional o real).
 
-**CAMBIOS del refactor:**
-- ✅ Usa `CameraCoords` centralizado de `@/types/map.ts` (unificó tipos con RutaCoMap)
+**CAMBIOS RECIENTES:**
+- ✅ Integrado soporte para rutas reales de OSRM
+- ✅ Renderiza línea **sólida** cuando hay `route` calculada
+- ✅ Renderiza línea **punteada** como fallback sin ruta
 
 | Prop | Tipo | Descripción |
 |------|------|-------------|
 | `origin` | `LocationPoint \| null` | Punto de salida (círculo verde) |
 | `destination` | `LocationPoint \| null` | Punto de llegada (círculo rojo) |
-| `selectingMode` | `'origin' \| 'destination' \| null` | Si está activo, el tap en el mapa crea un punto |
-| `onLocationSelect` | `(location, type) => void` | Callback al tocar el mapa en modo selección |
+| `route` | `CalculatedRoute \| null` | ⭐ Ruta real de OSRM (NUEVO) |
+| `selectingMode` | `'origin' \| 'destination' \| null` | Si está activo, tap en mapa crea punto |
+| `onLocationSelect` | `(location, type) => void` | Callback al tocar en modo selección |
 
-**Capas:**
-- **Origen:** `CircleLayer` verde (#10b981) con borde
-- **Destino:** `CircleLayer` rojo (#ef4444) con borde
-- **Línea provisional:** `LineLayer` azul punteado entre ambos puntos (visible solo si hay ambos puntos)
+**Capas renderizadas:**
+| Capa | Condición | Estilo | Datos |
+|------|-----------|--------|-------|
+| **Origen** | `origin !== null` | CircleLayer verde (#10b981) | Punto de salida |
+| **Destino** | `destination !== null` | CircleLayer rojo (#ef4444) | Punto de llegada |
+| **Línea sólida** | `route !== null` | LineLayer azul, width 4 | Geometría real OSRM |
+| **Línea punteada** | `route === null` | LineLayer gris, dash [2,2] | Fallback directo |
 
-**Usada en:** `PlannerScreen.tsx`
+**Ejemplo:**
+```tsx
+<PlannerMap
+  origin={origin}
+  destination={destination}
+  route={calculatedRoute}      // Ruta real si está disponible
+  selectingMode={selectingMode}
+  onLocationSelect={handleSelect}
+/>
+```
+
+**Usada en:** `MapScreen.tsx`
 
 ---
 
@@ -1061,6 +1249,45 @@ Custom hook para validación de ubicaciones. Centraliza reglas de negocio.
 - "Coordenadas inválidas"
 
 **Usada en:** `LocationSearchScreen.tsx`
+
+---
+
+### `src/hooks/useRouteCalculation.ts` — `useRouteCalculation()` (NUEVO ✨)
+Custom hook para calcular rutas reales entre dos puntos. Integrado con OSRM y `usePlannerStore`.
+
+**Returns:**
+```ts
+{
+  calculateRoute: () => Promise<CalculatedRoute | null>,
+  route: CalculatedRoute | null,
+  isCalculating: boolean,
+  error: string | null,
+  clearRoute: () => void
+}
+```
+
+**Qué hace:**
+- ✅ Valida que existan origen y destino
+- ✅ Valida que estén separados al menos 100 metros
+- ✅ Llama a `getRoute()` con perfil `'bike'` (ciclismo)
+- ✅ Maneja errores de OSRM: `NoRoute`, `InvalidInput`, `ServerError`
+- ✅ Guarda ruta en `usePlannerStore().route` automáticamente
+- ✅ Actualiza `isCalculatingRoute` y `routeError` del store
+
+**Flujo:**
+```ts
+const { calculateRoute, route, isCalculating, error } = useRouteCalculation()
+
+// Presionar botón
+await calculateRoute()
+
+// Resultado:
+// - route ≠ null → línea sólida en mapa
+// - route === null → error mostrado
+// - isCalculating === true → spinner visible
+```
+
+**Usada en:** `MapScreen.tsx`
 
 ---
 
